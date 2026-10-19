@@ -1,0 +1,4 @@
+# Every dependency override (npm "overrides") needs an entry here, added in the
+# same commit. The dependency-overrides workflow removes entries once upstream
+# no longer needs them. See the dependency policy for the entry format.
+overrides: []
