@@ -1,0 +1,286 @@
+import { expect, test, type Page } from "@playwright/test";
+
+type R = { x: number; y: number; w: number; h: number; kind?: string; tag?: string };
+
+function trackErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" && !m.text().includes("Failed to load resource")) errors.push(m.text());
+    if (m.type() === "warning" && /react|nest|hydration/i.test(m.text())) errors.push(m.text());
+  });
+  page.on("pageerror", (e) => errors.push(e.message));
+  return errors;
+}
+
+async function bones(page: Page, fixture: string): Promise<R[]> {
+  // Off-screen content is culled until it scrolls near the viewport.
+  await page.locator(`[data-fixture="${fixture}"]`).scrollIntoViewIfNeeded();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  return page.evaluate((id) => {
+    const root = document.querySelector(`[data-fixture="${id}"]`)!;
+    return Array.from(root.querySelectorAll<HTMLElement>("[data-bone]")).map((b) => {
+      const r = b.getBoundingClientRect();
+      return { x: r.left, y: r.top + scrollY, w: r.width, h: r.height, kind: b.dataset.bone };
+    });
+  }, fixture);
+}
+
+/** Real geometry of the loaded content: one rect per text line fragment, plus media/control boxes. */
+async function realGeometry(page: Page, fixture: string): Promise<{ text: R[]; blocks: R[] }> {
+  return page.evaluate((id) => {
+    const body = document.querySelector(`[data-fixture="${id}"] [data-autoskeleton]`)!;
+    const text: R[] = [];
+    const blocks: R[] = [];
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const all = body.querySelectorAll("img,button,input,select,textarea,svg");
+    const range = document.createRange();
+    const visible = (el: Element | null) => {
+      for (let e = el; e; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        if (cs.display === "none" || cs.visibility === "hidden") return false;
+        if (cs.overflow !== "visible") {
+          // ignore clipped-out text (scroll container)
+        }
+      }
+      return true;
+    };
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+      if (!/\S/.test(n.textContent || "")) continue;
+      if (!visible(n.parentElement)) continue;
+      if (n.parentElement?.closest("option,select,textarea,button,[data-skeleton]")) continue;
+      range.selectNodeContents(n);
+      for (const r of Array.from(range.getClientRects())) {
+        if (r.width < 2) continue;
+        text.push({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height });
+      }
+    }
+    for (const el of Array.from(all)) {
+      if (!visible(el)) continue;
+      const r = el.getBoundingClientRect();
+      blocks.push({ x: r.left, y: r.top + scrollY, w: r.width, h: r.height, tag: el.tagName });
+    }
+    return { text, blocks };
+  }, fixture);
+}
+
+const vOverlap = (a: R, b: R) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+const hOverlap = (a: R, b: R) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+
+const GEOMETRY_FIXTURES = ["user", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested"];
+
+for (const fixture of GEOMETRY_FIXTURES) {
+  test(`geometry matches real content: ${fixture}`, async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("/?same=1");
+    await page.evaluate(() => document.fonts.ready);
+    const b = await bones(page, fixture);
+    expect(b.length).toBeGreaterThan(0);
+
+    await page.evaluate(() => window.__setLoading(false));
+    await expect(page.locator(`[data-fixture="${fixture}"] [data-autoskeleton-layer]`)).toHaveCount(0);
+    const real = await realGeometry(page, fixture);
+    const textBones = b.filter((x) => x.kind === "text");
+    const blockBones = b.filter((x) => x.kind === "block");
+
+    // Every real line of text is covered by a text bar (or sits inside a block, e.g. a button/pill).
+    for (const t of real.text) {
+      const covered =
+        textBones.some((x) => vOverlap(x, t) > 0 && hOverlap(x, t) >= t.w * 0.9) ||
+        blockBones.some((x) => vOverlap(x, t) >= t.h * 0.5 && hOverlap(x, t) >= t.w * 0.9);
+      expect(covered, `text line not covered: ${JSON.stringify(t)}`).toBe(true);
+    }
+    // No phantom text bars: each one sits on a real line.
+    for (const x of textBones) {
+      const real_ = real.text.some((t) => vOverlap(x, t) >= x.h * 0.9 && hOverlap(x, t) > 0);
+      expect(real_, `phantom text bone: ${JSON.stringify(x)}`).toBe(true);
+    }
+    // Media and controls get a block with the exact same box.
+    for (const m of real.blocks) {
+      const match = blockBones.some(
+        (x) => Math.abs(x.x - m.x) < 1.5 && Math.abs(x.y - m.y) < 1.5 && Math.abs(x.w - m.w) < 1.5 && Math.abs(x.h - m.h) < 1.5,
+      );
+      expect(match, `no block bone for ${m.tag} ${JSON.stringify(m)}`).toBe(true);
+    }
+    expect(errors).toEqual([]);
+  });
+}
+
+test("content is hidden and inert while loading, then revealed", async ({ page }) => {
+  await page.goto("/?same=1");
+  const btn = page.locator('[data-fixture="user"] button.btn');
+  await expect(btn).toBeHidden();
+  expect(await btn.evaluate((el) => getComputedStyle(el).visibility)).toBe("hidden");
+  expect(await page.locator('[data-fixture="form"] input').first().evaluate((el) => !!el.closest("[inert]"))).toBe(true);
+  // Keyboard can't reach hidden controls.
+  await page.locator("#toggle").focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+  const focused = await page.evaluate(() => document.activeElement?.closest("[aria-busy=true]") !== null);
+  expect(focused).toBe(false);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(btn).toBeVisible();
+  await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(await page.locator("[inert]").count()).toBe(0);
+});
+
+test("toggling back to loading re-measures current content", async ({ page }) => {
+  await page.goto("/?same=1&loading=0");
+  await expect(page.locator("[data-bone]")).toHaveCount(0);
+  await page.locator("#toggle").click();
+  expect((await bones(page, "user")).length).toBeGreaterThan(5);
+});
+
+test("keep hint stays visible, ignore hint is skipped", async ({ page }) => {
+  await page.goto("/?same=1");
+  await expect(page.locator('[data-fixture="hero"] .eyebrow')).toBeVisible();
+  const eyebrow = await page.locator('[data-fixture="hero"] .eyebrow').boundingBox();
+  const b = await bones(page, "hero");
+  const overlapping = b.filter((x) => x.y < eyebrow!.y + eyebrow!.height && x.y + x.h > eyebrow!.y);
+  expect(overlapping).toEqual([]);
+});
+
+test("responsive: bones follow layout on resize", async ({ page }) => {
+  await page.goto("/?same=1");
+  const before = await bones(page, "article");
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.waitForTimeout(150);
+  const after = await bones(page, "article");
+  expect(JSON.stringify(after)).not.toBe(JSON.stringify(before));
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator('[data-fixture="article"] [data-bone]')).toHaveCount(0);
+  const real = await realGeometry(page, "article");
+  const textBones = after.filter((x) => x.kind === "text");
+  for (const t of real.text) {
+    const covered =
+      textBones.some((x) => vOverlap(x, t) > 0 && hOverlap(x, t) >= t.w * 0.9) ||
+      after.some((x) => x.kind === "block" && vOverlap(x, t) >= t.h * 0.5 && hOverlap(x, t) >= t.w * 0.9);
+    expect(covered, JSON.stringify(t)).toBe(true);
+  }
+});
+
+test("scroll container: bones are clipped and follow scrolling", async ({ page }) => {
+  await page.goto("/?same=1");
+  const b = await bones(page, "scroll");
+  const box = (await page.locator('[data-fixture="scroll"] .scroller').boundingBox())!;
+  const pageY = await page.evaluate(() => window.scrollY);
+  for (const x of b) {
+    expect(x.y - pageY).toBeGreaterThanOrEqual(box.y - 0.5);
+    expect(x.y - pageY + x.h).toBeLessThanOrEqual(box.y + box.height + 0.5);
+  }
+  const firstTop = Math.min(...b.filter((x) => x.kind === "text").map((x) => x.y));
+  await page.locator('[data-fixture="scroll"] .scroller').evaluate((el) => (el.scrollTop = 100));
+  await page.waitForTimeout(100);
+  const b2 = await bones(page, "scroll");
+  const firstTop2 = Math.min(...b2.filter((x) => x.kind === "text").map((x) => x.y));
+  expect(firstTop2).not.toBe(firstTop);
+});
+
+test("useSkeleton() lets components skip effects while loading", async ({ page }) => {
+  await page.goto("/?same=1");
+  const widget = page.locator('[data-fixture="effects"] [data-tracked]');
+  await expect(widget).toHaveAttribute("data-tracked", "0");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(widget).not.toHaveAttribute("data-tracked", "0");
+});
+
+test("id cache: skeleton without placeholder data uses the remembered layout", async ({ page }) => {
+  // First visit: nothing cached, so the fallback shows.
+  await page.goto("/?same=1");
+  await expect(page.locator('[data-fixture="cache"] .fallback')).toBeVisible();
+  expect((await bones(page, "cache")).length).toBe(0);
+  // Real content renders and is remembered.
+  await page.evaluate(() => window.__setLoading(false));
+  await page.waitForTimeout(100);
+  const real = await realGeometry(page, "cache");
+  // Next visit: the skeleton is drawn from cache, no fallback.
+  await page.reload();
+  await expect(page.locator('[data-fixture="cache"] .fallback')).toHaveCount(0);
+  const b = await bones(page, "cache");
+  expect(b.filter((x) => x.kind === "text").length).toBeGreaterThan(3);
+  const avatar = real.blocks.find((x) => x.tag === "IMG")!;
+  expect(b.some((x) => x.kind === "block" && Math.abs(x.w - avatar.w) < 1 && Math.abs(x.y - avatar.y) < 1.5)).toBe(true);
+  // The spacer reserves the real height, so nothing jumps when data arrives.
+  const spacerH = await page.locator('[data-fixture="cache"] [data-autoskeleton-spacer]').evaluate((el) => el.getBoundingClientRect().height);
+  const cardH = await page.evaluate(() => {
+    const raw = localStorage.getItem("autoskeleton:v1:demo-cache")!;
+    return JSON.parse(raw)[0].height as number;
+  });
+  expect(Math.abs(spacerH - cardH)).toBeLessThan(1);
+});
+
+test("Suspense fallback draws the cached layout on refetch", async ({ page }) => {
+  await page.goto("/?same=1&loading=0");
+  await expect(page.locator('[data-fixture="suspense"] .user-card')).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(100);
+  await page.locator("#suspense-reload").click();
+  await expect(page.locator('[data-fixture="suspense"] [data-bone]').first()).toBeAttached();
+  expect((await bones(page, "suspense")).length).toBeGreaterThan(4);
+  await expect(page.locator('[data-fixture="suspense"] .user-card')).toBeVisible({ timeout: 5000 });
+});
+
+test("no React warnings in table (tbody) usage", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1");
+  await page.evaluate(() => window.__setLoading(false));
+  await page.evaluate(() => window.__setLoading(true));
+  await page.waitForTimeout(300);
+  expect(errors).toEqual([]);
+  expect((await bones(page, "table")).length).toBeGreaterThan(10);
+});
+
+test("long lists: off-screen content is culled, then measured when scrolled to", async ({ page }) => {
+  await page.goto("/?perf=400");
+  const count = () => page.locator("[data-bone]").count();
+  const initial = await count();
+  expect(initial).toBeGreaterThan(10);
+  expect(initial).toBeLessThan(400);
+  // Layout size still accounts for the whole list.
+  const before = await page.locator("[data-bone]").evaluateAll((els) => Math.max(...els.map((e) => e.getBoundingClientRect().bottom)));
+  await page.mouse.wheel(0, 20000);
+  await page.waitForTimeout(200);
+  const after = await page.locator("[data-bone]").evaluateAll((els) => Math.max(...els.map((e) => e.getBoundingClientRect().bottom)));
+  expect(await count()).toBeGreaterThan(10);
+  // Bones exist around the new viewport.
+  expect(after).toBeGreaterThan(0);
+  expect(before).toBeGreaterThan(0);
+  const visible = await page.locator("[data-bone]").evaluateAll((els) => els.filter((e) => { const r = e.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).length);
+  expect(visible).toBeGreaterThan(10);
+});
+
+test("fade-out: layer lingers briefly with data-exiting, then unmounts", async ({ page }) => {
+  await page.goto("/?same=1");
+  const sawExiting = await page.evaluate(
+    () =>
+      new Promise<{ exiting: boolean; sameElement: boolean }>((resolve) => {
+        const before = document.querySelector('[data-fixture="user"] [data-autoskeleton-layer]');
+        const mo = new MutationObserver(() => {
+          const el = document.querySelector('[data-fixture="user"] [data-autoskeleton-layer][data-exiting]');
+          if (el) {
+            mo.disconnect();
+            resolve({ exiting: true, sameElement: el === before });
+          }
+        });
+        mo.observe(document.body, { subtree: true, attributes: true, childList: true });
+        window.__setLoading(false);
+        setTimeout(() => resolve({ exiting: false, sameElement: false }), 1000);
+      }),
+  );
+  // The same layer element fades (a remount would skip the CSS transition).
+  expect(sawExiting).toEqual({ exiting: true, sameElement: true });
+  await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+});
+
+test("no data-pending after client render", async ({ page }) => {
+  await page.goto("/?same=1");
+  expect(await page.locator("[data-pending]").count()).toBe(0);
+});
+
+test("fade={0}: skeleton disappears immediately and comes back on the next load", async ({ page }) => {
+  await page.goto("/?same=1&fade=0");
+  expect((await bones(page, "user")).length).toBeGreaterThan(5);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  await page.evaluate(() => window.__setLoading(true));
+  expect((await bones(page, "user")).length).toBeGreaterThan(5);
+});

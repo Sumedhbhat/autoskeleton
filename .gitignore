@@ -1,0 +1,9 @@
+blob-report
+dist
+evals/**/node_modules
+evals/runs/*/grade-loaded.png
+evals/*.tgz
+node_modules
+playwright-report
+test-results
+VERSION
