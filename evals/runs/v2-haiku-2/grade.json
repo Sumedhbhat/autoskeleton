@@ -1,0 +1,170 @@
+{
+  "run": "evals/runs/v2-haiku-2",
+  "checks": {
+    "typecheck": {
+      "ok": true
+    },
+    "imports autoskeleton": {
+      "ok": true
+    },
+    "hand-written skeletons gone": {
+      "ok": true
+    },
+    "grader hooks kept": {
+      "ok": true
+    },
+    "every section shows an auto skeleton while loading": {
+      "ok": true,
+      "detail": {
+        "issues": {
+          "height": 379,
+          "bones": 30,
+          "busy": true,
+          "loadingText": false,
+          "handSk": 0
+        },
+        "chart": {
+          "height": 277,
+          "bones": 4,
+          "busy": true,
+          "loadingText": false,
+          "handSk": 0
+        },
+        "search": {
+          "height": 426,
+          "bones": 30,
+          "busy": true,
+          "loadingText": false,
+          "handSk": 0
+        },
+        "comments": {
+          "height": 304,
+          "bones": 13,
+          "busy": true,
+          "loadingText": false,
+          "handSk": 0
+        }
+      }
+    },
+    "no side effects on placeholder data (markSeen / analytics)": {
+      "ok": true,
+      "detail": {
+        "heldSeen": [],
+        "heldAnalytics": []
+      }
+    },
+    "no layout shift > 15% when data arrives": {
+      "ok": false,
+      "detail": {
+        "issues": 0.11,
+        "chart": 0,
+        "search": 0.17,
+        "comments": 0.26
+      }
+    },
+    "skeleton removed after load": {
+      "ok": true
+    },
+    "real side effects still fire": {
+      "ok": true,
+      "detail": {
+        "seen": [
+          "ISS-101",
+          "ISS-102",
+          "ISS-103",
+          "ISS-104",
+          "ISS-105",
+          "ISS-101",
+          "ISS-102",
+          "ISS-103",
+          "ISS-104",
+          "ISS-105",
+          "ISS-101",
+          "ISS-102",
+          "ISS-103",
+          "ISS-104",
+          "ISS-101",
+          "ISS-102",
+          "ISS-103",
+          "ISS-104"
+        ],
+        "analytics": [
+          {
+            "event": "chart_render",
+            "payload": 12
+          }
+        ]
+      }
+    },
+    "load more keeps page 1 visible and skeletons only the new page": {
+      "ok": true,
+      "detail": {
+        "during": {
+          "page1Visible": true,
+          "bones": 30
+        },
+        "after": {
+          "bones": 0,
+          "text": true
+        }
+      }
+    },
+    "search refetch shows skeleton, then results": {
+      "ok": true,
+      "detail": {
+        "during": {
+          "bones": 25,
+          "text": false
+        },
+        "after": {
+          "bones": 0,
+          "hasApi": true
+        }
+      }
+    },
+    "markSeen never called with placeholder ids": {
+      "ok": true,
+      "detail": []
+    },
+    "no runtime errors": {
+      "ok": true,
+      "detail": []
+    }
+  },
+  "sections": {
+    "issues": {
+      "bonesWhileLoading": 30,
+      "skeletonShown": true,
+      "heightLoading": 379,
+      "heightLoaded": 428,
+      "layoutShift": 0.11,
+      "cleanAfterLoad": true
+    },
+    "chart": {
+      "bonesWhileLoading": 4,
+      "skeletonShown": true,
+      "heightLoading": 277,
+      "heightLoaded": 277,
+      "layoutShift": 0,
+      "cleanAfterLoad": true
+    },
+    "search": {
+      "bonesWhileLoading": 30,
+      "skeletonShown": true,
+      "heightLoading": 426,
+      "heightLoaded": 364,
+      "layoutShift": 0.17,
+      "cleanAfterLoad": true
+    },
+    "comments": {
+      "bonesWhileLoading": 13,
+      "skeletonShown": true,
+      "heightLoading": 304,
+      "heightLoaded": 241,
+      "layoutShift": 0.26,
+      "cleanAfterLoad": true
+    }
+  },
+  "notes": [],
+  "score": "12/13"
+}

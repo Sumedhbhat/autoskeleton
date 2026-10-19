@@ -1,0 +1,123 @@
+{
+  "run": "evals/runs/haiku-noskill",
+  "checks": {
+    "typecheck": {
+      "ok": true
+    },
+    "imports autoskeleton": {
+      "ok": true
+    },
+    "hand-written skeletons no longer used": {
+      "ok": true
+    },
+    "hand-written skeleton files deleted": {
+      "ok": true
+    },
+    "no manual .sk markup": {
+      "ok": true
+    },
+    "all data-section kept": {
+      "ok": true
+    },
+    "every section shows an auto skeleton while loading": {
+      "ok": true,
+      "detail": {
+        "profile": 13,
+        "orders": 50,
+        "notifications": 15,
+        "products": 42,
+        "activity": 12
+      }
+    },
+    "no layout shift > 15% when data arrives": {
+      "ok": true,
+      "detail": {
+        "profile": 0,
+        "orders": 0.11,
+        "notifications": 0.11,
+        "products": 0,
+        "activity": 0
+      }
+    },
+    "skeleton removed after load": {
+      "ok": true
+    },
+    "no analytics fired on placeholder data": {
+      "ok": true,
+      "detail": 0
+    },
+    "real analytics still fires once loaded": {
+      "ok": true,
+      "detail": [
+        {
+          "event": "activity_impressions",
+          "payload": [
+            "a1",
+            "a2",
+            "a3",
+            "a4"
+          ]
+        }
+      ]
+    },
+    "no runtime errors": {
+      "ok": false,
+      "detail": [
+        "Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. #Aute",
+        "Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. #Aute",
+        "Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. #Aute",
+        "Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. #Aute",
+        "Encountered two children with the same key, `%s`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version. #Aute"
+      ]
+    }
+  },
+  "sections": {
+    "profile": {
+      "bonesWhileLoading": 13,
+      "skeletonShown": true,
+      "heightLoading": 150,
+      "heightLoaded": 150,
+      "layoutShift": 0,
+      "cleanAfterLoad": true,
+      "spinnerOrLoadingText": false
+    },
+    "orders": {
+      "bonesWhileLoading": 50,
+      "skeletonShown": true,
+      "heightLoading": 360,
+      "heightLoaded": 323,
+      "layoutShift": 0.11,
+      "cleanAfterLoad": true,
+      "spinnerOrLoadingText": false
+    },
+    "notifications": {
+      "bonesWhileLoading": 15,
+      "skeletonShown": true,
+      "heightLoading": 360,
+      "heightLoaded": 323,
+      "layoutShift": 0.11,
+      "cleanAfterLoad": true,
+      "spinnerOrLoadingText": false
+    },
+    "products": {
+      "bonesWhileLoading": 42,
+      "skeletonShown": true,
+      "heightLoading": 330,
+      "heightLoaded": 330,
+      "layoutShift": 0,
+      "cleanAfterLoad": true,
+      "spinnerOrLoadingText": false
+    },
+    "activity": {
+      "bonesWhileLoading": 12,
+      "skeletonShown": true,
+      "heightLoading": 224,
+      "heightLoaded": 224,
+      "layoutShift": 0,
+      "cleanAfterLoad": true,
+      "spinnerOrLoadingText": false
+    }
+  },
+  "notes": [],
+  "score": "11/12"
+}
