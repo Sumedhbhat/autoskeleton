@@ -87,8 +87,8 @@ const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: f
 
 Return a keyed element as in `.map()`. Placeholder rows are keyed by index
 for you, so the shared placeholder `id` never collides. `placeholder` may be a
-value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…),
-plus `promise` for a promise of the array (Suspense, below).
+value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…).
+For Suspense, use it as the `SkeletonSuspense` fallback (below).
 
 ## Writing placeholders
 
@@ -343,6 +343,21 @@ export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspense
 }
 ```
 
+Lists: the fallback is a loading `SkeletonList`. Inside the boundary it draws
+no bones of its own; `SkeletonSuspense` measures the rows and fades them.
+
+```tsx
+<SkeletonSuspense
+  fallback={
+    <SkeletonList loading placeholder={STORY_PLACEHOLDER} count={5}>
+      {(s) => <StoryCard key={s.id} story={s} />}
+    </SkeletonList>
+  }
+>
+  <Stories promise={storiesPromise} />
+</SkeletonSuspense>
+```
+
 Limits:
 - Suspense remounts: the content mounts fresh when data arrives (state and
   effects start over).
@@ -455,8 +470,8 @@ Static `opacity: 0` content gets no bones.
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder)`: see
 Suspense above.
 
-`<SkeletonList>`: the same props, with `items` (instead of `data`), `placeholder`
-(one item), `count` (default 3) and `promise` (of the array); children get `(item, index)`.
+`<SkeletonList>`: the same props as `<Skeleton>`, with `items` (instead of `data`),
+`placeholder` (one item) and `count` (default 3); children get `(item, index)`.
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 

@@ -351,13 +351,23 @@ Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain
 </Suspense>
 ```
 
-Lists take a promise of the array the same way:
+For a list, make the fallback a loading `SkeletonList`:
 
 ```tsx
-<SkeletonList promise={storiesPromise} placeholder={STORY_PLACEHOLDER} count={5}>
-  {(story) => <StoryCard key={story.id} story={story} />}
-</SkeletonList>
+<SkeletonSuspense
+  fallback={
+    <SkeletonList loading placeholder={STORY_PLACEHOLDER} count={5}>
+      {(story) => <StoryCard key={story.id} story={story} />}
+    </SkeletonList>
+  }
+>
+  <Stories promise={storiesPromise} />
+</SkeletonSuspense>
 ```
+
+It doesn't draw bones of its own inside the boundary. `SkeletonSuspense`
+measures the rows and fades them out over the content. Keep the boundary's
+parent the list's flex or grid container, as for any `SkeletonList`.
 
 How this differs from `loading`:
 
@@ -444,8 +454,8 @@ If you need one, put it on an element inside, or wrap the skeleton.
 under Suspense above.
 
 `<SkeletonList>` takes the same props as `<Skeleton>`, with `items` (instead of `data`),
-`placeholder` (one item), `count` (default `3`) and `promise` (of the array).
-Its children function gets `(item, index)`.
+`placeholder` (one item) and `count` (default `3`). Its children function
+gets `(item, index)`.
 
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 
