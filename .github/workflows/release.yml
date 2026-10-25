@@ -5,7 +5,7 @@ name: Release
 # -nightly.<run> for main builds in its own checkout and never commits it.
 #
 # npm publishing is opt-in: set the repository variable NPM_PUBLISH=true and
-# either add an NPM_TOKEN secret or configure npm trusted publishing for this
+# either add an NPM_CI_TOKEN secret or configure npm trusted publishing for this
 # workflow. Until then the GitHub releases are still created.
 
 on:
@@ -155,7 +155,7 @@ jobs:
       - name: Publish to npm
         if: vars.NPM_PUBLISH == 'true'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_CI_TOKEN }}
         run: |
           if npm view "autoskeleton@$VERSION" version >/dev/null 2>&1; then
             echo "::notice::autoskeleton@$VERSION is already on npm."
