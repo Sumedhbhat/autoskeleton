@@ -307,7 +307,7 @@ function App() {
             </div>
           </Section>
 
-          <Section id="list-suspense" title="SkeletonList as the SkeletonSuspense fallback">
+          <Section id="list-suspense" title="List under SkeletonSuspense (one item, fake.list)">
             <ListSuspenseDemo />
           </Section>
 
@@ -672,6 +672,25 @@ function ManualSuspenseDemo() {
   );
 }
 
+// A list under Suspense: the fallback is one placeholder item repeated with
+// fake.list, each copy with its own id so the rows' keys don't collide. The
+// child maps whatever useSuspenseData returns: placeholder rows, then posts.
+const listPostsPlaceholder: Post[] = fake.list(3, (i) => ({ ...postPlaceholder, id: fake.id(i) }));
+function SuspendingPostList({ promise }: { promise: Promise<Post[]> }) {
+  const posts = useSuspenseData(promise);
+  return posts.map((p) => <PostItem key={p.id} post={p} />);
+}
+function ListSuspenseDemo() {
+  const { promise } = useDemoPromise(listPosts);
+  return (
+    <div className="feed">
+      <SkeletonSuspense fallback={listPostsPlaceholder}>
+        <SuspendingPostList promise={promise} />
+      </SkeletonSuspense>
+    </div>
+  );
+}
+
 // `use(promise)` for React 18 and 19, standing in for useSuspenseQuery: it
 // suspends without useSuspenseData, so it never sees the placeholder.
 type Status<T> = { state: "pending" } | { state: "done"; value: T } | { state: "failed"; error: unknown };
@@ -691,27 +710,6 @@ function read<T>(promise: Promise<T>): T {
   if (s.state === "done") return s.value;
   if (s.state === "failed") throw s.error;
   throw promise;
-}
-// A list: the fallback is a loading SkeletonList (one placeholder item, `count`
-// rows). It doesn't draw bones itself; the boundary measures and fades them.
-function SuspendingPostList({ promise }: { promise: Promise<Post[]> }) {
-  return read(promise).map((p) => <PostItem key={p.id} post={p} />);
-}
-function ListSuspenseDemo() {
-  const { promise } = useDemoPromise(listPosts);
-  return (
-    <div className="feed">
-      <SkeletonSuspense
-        fallback={
-          <SkeletonList loading placeholder={postPlaceholder} count={3}>
-            {(p) => <PostItem key={p.id} post={p} />}
-          </SkeletonList>
-        }
-      >
-        <SuspendingPostList promise={promise} />
-      </SkeletonSuspense>
-    </div>
-  );
 }
 function SelfLoadingUser() {
   useLoading();

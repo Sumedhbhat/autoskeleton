@@ -872,12 +872,16 @@ test("SkeletonList: table rows as tbody, layer portaled out of the table", async
   expect(errors).toEqual([]);
 });
 
-test("SkeletonList as a SkeletonSuspense fallback: one layer, rows fade out over the content", async ({ page }) => {
+test("List under SkeletonSuspense: fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
   const errors = trackErrors(page);
+  const keyWarnings: string[] = [];
+  page.on("console", (m) => {
+    if (/same key/i.test(m.text())) keyWarnings.push(m.text());
+  });
   await page.goto("/");
   const root = page.locator('[data-fixture="list-suspense"]');
-  // The boundary's wrapper and the list's, both busy; only the boundary draws bones.
-  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(2);
+  // Only the boundary's wrapper: the child maps the placeholder rows itself.
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
   await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
   expectIdenticalRows(await bonesPerItem(page, "list-suspense", ".post"), 3);
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
@@ -920,9 +924,11 @@ test("SkeletonList as a SkeletonSuspense fallback: one layer, rows fade out over
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   // A new promise suspends again: placeholder rows come back.
   await page.evaluate(() => window.__setLoading(true));
-  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(2);
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
   await expect(root.locator('[data-autoskeleton][aria-busy="true"] .post strong')).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
   expect((await bones(page, "list-suspense")).length).toBeGreaterThan(5);
+  // Each placeholder row has its own id, so no duplicate-key warnings.
+  expect(keyWarnings).toEqual([]);
   expect(errors).toEqual([]);
 });

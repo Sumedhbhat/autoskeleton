@@ -23,8 +23,9 @@ const placeholderLists = new WeakSet<readonly unknown[]>();
 /**
  * A `<Skeleton>` for lists: declare one placeholder item and a `count`, and
  * the skeleton is that item rendered `count` times. When `items` arrive, the
- * same function renders each of them. For Suspense, use it (with `loading`)
- * as the `<SkeletonSuspense>` fallback.
+ * same function renders each of them. Under `<SkeletonSuspense>` it isn't
+ * needed: pass `fake.list(count, (i) => ({ ...item, id: fake.id(i) }))` as the
+ * fallback and map the `useSuspenseData` result.
  */
 export function SkeletonList<T>({ placeholder, count = 3, children, items, loading, ...rest }: SkeletonListProps<T>): ReactElement {
   const makePlaceholder = (): readonly T[] => {
