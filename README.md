@@ -146,52 +146,53 @@ attributes go to the wrapper.
 )}
 ```
 
-### Suspense: `promise`
+### Suspense: `SkeletonSuspense`
+
+Swap `Suspense` for `SkeletonSuspense` and pass the presentational component
+with placeholder data as `fallback`:
 
 ```tsx
-<Skeleton promise={commentsPromise} placeholder={COMMENTS_PLACEHOLDER}>
-  {(comments) => <CommentList comments={comments} />}
-</Skeleton>
+// before
+<Suspense fallback={<Spinner />}>
+  <Comments promise={commentsPromise} />
+</Suspense>
+
+// after
+<SkeletonSuspense fallback={<CommentList comments={COMMENTS_PLACEHOLDER} />}>
+  <Comments promise={commentsPromise} />
+</SkeletonSuspense>
 ```
 
-This sets up its own `<Suspense>`. The fallback is `CommentList` rendered with
-the placeholder, as a skeleton, and the same function renders the resolved
-data. A rejection goes to the nearest error boundary. While `promise` is
-`null` or `undefined` (request not started) the skeleton shows.
+It takes the same props as `<Suspense>` (`fallback`, `children`, `name`) plus
+the display options (`animation`, `label`, `id`, `fade`, `as`, …). The
+fallback is rendered invisibly, measured and drawn as a skeleton. The children
+suspend however they like: `use(promise)`, `useSuspenseQuery`, `lazy`.
+Rejections go to the nearest error boundary, as with `<Suspense>`. When the
+content shows, the fallback's bones fade out over it. Works on React 18 and 19.
 
-Create the promise outside render: in a loader, a cache, a parent's state, or
-as a Server Component prop. A new promise on every render suspends forever.
-Any promise or thenable works, including React Query's `useQuery(q).promise`
-(with `experimental_prefetchInRender`). React 19 reads it with `use()`. React
-18 has no `use()`, so the promise is thrown to Suspense and tracked instead,
-with the same result.
-
-The fallback renders on the server, and with streaming SSR the content
-replaces it once the promise resolves. React doesn't hydrate a pending
-fallback, so a server-rendered one stays the CSS-only approximation (see How
-it works) rather than measured bones.
-
-A component that suspends by itself (`useSuspenseQuery` inside it) can't be
-awaited from outside, so wire the fallback by hand with its presentational
-part:
+Wiring it by hand also works, without the fade:
 
 ```tsx
 <Suspense fallback={<Skeleton loading><CommentList comments={COMMENTS_PLACEHOLDER} /></Skeleton>}>
-  <Comments /> {/* useSuspenseQuery, then <CommentList> */}
+  <Comments promise={commentsPromise} />
 </Suspense>
 ```
 
 How this differs from `loading`:
 
 - Suspense swaps trees, so the content mounts fresh when data arrives. Its
-  state and effects start over, and the swap is a different DOM tree (with
-  `loading` the same tree stays mounted).
-- With `promise`, the fallback's bones are handed to the content and fade
-  out over it. A hand-wired fallback disappears at once, with no fade.
-- A new promise after the content has shown suspends again: React hides the
-  content (`display: none`) and shows the skeleton. In a transition
-  (`startTransition`) React keeps the old content instead, with no skeleton.
-  For a skeleton over stale results, use `loading={isFetching}`.
+  state and effects start over, and the fallback and the content are
+  different DOM trees (with `loading` the same tree stays mounted).
+- When content that has shown suspends again, React hides it
+  (`display: none`) and shows the skeleton. In a transition
+  (`startTransition`, most router navigations) React keeps the old content
+  instead, with no skeleton. For a skeleton over stale results, use
+  `loading={isFetching}`.
+- The fallback renders on the server, in `renderToString` output and in the
+  streaming shell, and streamed content replaces it. React doesn't hydrate a
+  fallback that is waiting for streamed content, so a server-rendered one
+  stays the CSS-only approximation (see How it works) rather than measured
+  bones.
 
 ### When there's no placeholder: `id`
 
@@ -239,7 +240,6 @@ focused.
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
 | `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. Or use `usePlaceholder` and pass only `loading`. |
-| `promise` | | Data as a promise, instead of `data`. Sets up its own Suspense boundary. |
 | `id` | | Cache key for remembered layouts. Not the DOM `id` (never forwarded). |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer"`, `"pulse"` or `"none"`. Reduced motion is respected. |
@@ -254,6 +254,9 @@ focused.
 `id` is the cache key, so it is never forwarded as the wrapper's DOM `id`.
 If you need one, put it on an element inside, or wrap the skeleton.
 
+`<SkeletonSuspense>` takes `fallback`, `children` and `name` (as
+`<Suspense>`), plus `id`, `animation`, `as`, `fade`, `label`, `textHeight`,
+`surfaces`, `persist`, `className` and `style`.
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 
 ### Theming

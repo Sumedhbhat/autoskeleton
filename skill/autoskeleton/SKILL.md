@@ -180,38 +180,39 @@ for the next page only, below them.
 </ul>
 ```
 
-**Suspense / promises:** pass the promise. `<Skeleton promise>` sets up its
-own `<Suspense>`, renders `children(placeholder)` as the skeleton fallback,
-then `children(value)` when it resolves. Rejections reach the nearest error
-boundary. Works on React 18 and 19 and renders the fallback on the server.
+**Suspense:** swap `Suspense` for `SkeletonSuspense` and pass the
+presentational component with placeholder data as `fallback`. Same props as
+`<Suspense>` (`fallback`, `children`, `name`) plus the display options below
+(`id`, `label`, `animation`, `fade`, `as`, …). The children suspend however
+they like (`use(promise)`, `useSuspenseQuery`, `lazy`). Rejections reach the
+nearest error boundary. Works on React 18 and 19.
 
 ```tsx
-<ErrorBoundary fallback={<CommentsError />}>
-  <Skeleton promise={commentsPromise} placeholder={COMMENTS_PLACEHOLDER}>
-    {(comments) => <CommentList comments={comments} />}
-  </Skeleton>
-</ErrorBoundary>
-```
-
-Don't add your own `<Suspense>` or `use()` around it. Create the promise
-outside render (loader, cache, parent state, Server Component prop); a new
-promise each render suspends forever. `null`/`undefined` shows the skeleton.
-React Query: `promise={useQuery(q).promise}` (needs `experimental_prefetchInRender`).
-
-If the component suspends by itself (`useSuspenseQuery` inside it), wire the
-fallback by hand with its presentational part:
-
-```tsx
-<Suspense fallback={<Skeleton loading><CommentList comments={COMMENTS_PLACEHOLDER} /></Skeleton>}>
-  <Comments /> {/* useSuspenseQuery, then <CommentList> */}
+// before
+<Suspense fallback={<Spinner />}>
+  <Comments promise={commentsPromise} />
 </Suspense>
+
+// after
+<SkeletonSuspense fallback={<CommentList comments={COMMENTS_PLACEHOLDER} />}>
+  <Comments promise={commentsPromise} />
+</SkeletonSuspense>
 ```
 
-Suspense remounts: the content mounts fresh when data arrives (state and
-effects start over). `promise` fades the skeleton out over the content; a
-hand-wired fallback just disappears. A new promise after content has shown
-hides it and shows the skeleton again (not in a transition). For a skeleton
-over stale results, use `loading={isFetching}` instead.
+Don't wrap the fallback in `<Skeleton>` yourself. The fallback's bones fade
+out over the content when it shows. `<Suspense fallback={<Skeleton loading>…</Skeleton>}>`
+also works, without the fade.
+
+Limits:
+- Suspense remounts: the content mounts fresh when data arrives (state and
+  effects start over).
+- Content that suspends again is hidden and the skeleton shows, except in a
+  transition (`startTransition`, router navigations), where React keeps the
+  old content with no skeleton. For a skeleton over stale results, use
+  `loading={isFetching}` instead.
+- The fallback renders on the server (`renderToString` and the streaming
+  shell), but React doesn't hydrate a fallback waiting for streamed content,
+  so it stays the CSS-only approximation until the content replaces it.
 
 ## Components that fetch their own data
 
@@ -219,7 +220,7 @@ If the component calls `useQuery` inside itself, the placeholder trick doesn't
 apply directly. Options, in order of preference:
 
 1. Split it: `UserCard` (presentational, takes `user`) + `UserCardContainer` (fetches, calls `usePlaceholder(data, USER_PLACEHOLDER)`, renders `<Skeleton loading={loading}><UserCard user={user} /></Skeleton>`).
-2. If it suspends (`useSuspenseQuery`), the hand-wired Suspense fallback above, with the presentational part.
+2. If it suspends (`useSuspenseQuery`), wrap it in `<SkeletonSuspense fallback={<UserCard user={USER_PLACEHOLDER} />}>`.
 3. Wrap the place it's used with Suspense and an `id` skeleton (see below).
 
 ## No placeholder possible: `id` + `fallback`
@@ -302,7 +303,6 @@ Static `opacity: 0` content gets no bones.
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
 | `data` / `placeholder` / children fn | | Render-prop form. `placeholder` may be a value or `() => value`. With `usePlaceholder`, pass only `loading`. |
-| `promise` | | Instead of `data`: a promise. Own Suspense boundary; rejections go to the error boundary. |
 | `id` | | Cache key for remembered layouts. Not the DOM `id` (never forwarded). |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer" \| "pulse" \| "none"`. |
@@ -313,6 +313,10 @@ Static `opacity: 0` content gets no bones.
 | `surfaces` | `true` | Copy card backgrounds/borders. |
 | `persist` | `true` | Save `id` layouts to localStorage. |
 | other HTML attributes | | `aria-*`, `data-*`, `role`, `className`, `style`… forwarded to the wrapper. Not `id`. |
+
+`<SkeletonSuspense>`: `fallback`, `children`, `name` (as `<Suspense>`), plus
+`id`, `animation`, `as`, `fade`, `label`, `textHeight`, `surfaces`,
+`persist`, `className`, `style`.
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 
@@ -338,4 +342,4 @@ theme for this.
 - [ ] Tables use `as="tbody"`.
 - [ ] Every `useEffect` in wrapped components (and their children) checked: outside-world effects return early when `useSkeleton()` is true.
 - [ ] Placeholder covers nested objects, nullable fields and anything parsed/formatted (`new Date(...)`, `.toFixed()`, `.map()` on arrays).
-- [ ] Refetch → `loading={isFetching}`; load-more → skeleton only for the new page; promise → `<Skeleton promise placeholder>` inside an error boundary; self-suspending component → fallback renders the presentational component with placeholder data.
+- [ ] Refetch → `loading={isFetching}`; load-more → skeleton only for the new page; Suspense → `<SkeletonSuspense fallback={<Presentational data={PLACEHOLDER} />}>`.
