@@ -114,7 +114,7 @@ function withoutHtmlAttributes<P extends object>(props: P): P {
   return out as P;
 }
 
-interface BaseProps extends SkeletonConfig {
+export interface BaseProps extends SkeletonConfig {
   /**
    * Show the skeleton instead of the content. Optional when you pass `data`:
    * then it defaults to `data == null`.

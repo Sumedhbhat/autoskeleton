@@ -12,6 +12,7 @@ import {
 import { createRoot } from "react-dom/client";
 import {
   Skeleton,
+  SkeletonList,
   SkeletonProvider,
   SkeletonSuspense,
   fake,
@@ -26,8 +27,11 @@ import {
   CenteredHero,
   Feed,
   Inbox,
+  InboxItem,
+  InvoiceRow,
   InvoiceRows,
   PostItem,
+  ProductCard,
   ProductGrid,
   SettingsForm,
   StatTiles,
@@ -35,6 +39,7 @@ import {
   UserCard,
   type Article,
   type Invoice,
+  type Message,
   type Post,
   type Product,
   type Stat,
@@ -161,6 +166,19 @@ const profilePlaceholder = (): Profile => ({ user: userPlaceholder, pinned: post
 const inboxPlaceholder = fake.list(12, (i) => ({ id: String(i), from: fake.name(i), subject: fake.sentence(6, i) }));
 const realInbox = fake.list(12, (i) => ({ id: String(i), from: `Sender ${i}`, subject: `Subject line number ${i} with some words` }));
 
+// SkeletonList: one placeholder item, repeated `count` times while loading.
+// With ?same=1 the real items are copies of it, so geometry can be compared.
+const postPlaceholder: Post = { id: fake.id(), author: fake.name(1), time: "2h", body: fake.sentence(14), likes: 10 };
+const productPlaceholder: Product = { id: fake.id(), title: fake.text(10), price: "$00.00", image: fake.image(300, 300) };
+const invoicePlaceholder: Invoice = { id: "INV-000", customer: fake.text(12), amount: "$1,000.00", status: "paid", date: "Mar 3" };
+const messagePlaceholder: Message = { id: fake.id(), from: fake.name(2), subject: fake.sentence(6) };
+const copies = <T extends { id: string }>(item: T, n: number, id: (i: number) => string = String): T[] =>
+  fake.list(n, (i) => ({ ...item, id: id(i) }));
+const listPosts = SAME ? copies(postPlaceholder, 3) : realPosts;
+const listProducts = SAME ? copies(productPlaceholder, 4) : realProducts.slice(0, 4);
+const listInvoices = SAME ? copies(invoicePlaceholder, 3, (i) => `INV-00${i}`) : realInvoices;
+const listMessages = SAME ? copies(messagePlaceholder, 4) : realInbox.slice(0, 4);
+
 // ---------------------------------------------------------------------------
 
 function Section({ id, title, children, wide }: { id: string; title: string; children: ReactNode; wide?: boolean }) {
@@ -281,6 +299,48 @@ function App() {
               <IgnoredDemo />
             </Section>
           ) : null}
+          <Section id="list" title="SkeletonList: flex feed (count=3)">
+            <div className="feed">
+              <SkeletonList items={loading ? undefined : listPosts} placeholder={postPlaceholder} count={3}>
+                {(p) => <PostItem key={p.id} post={p} />}
+              </SkeletonList>
+            </div>
+          </Section>
+
+          <Section id="list-promise" title="SkeletonList: promise">
+            <ListPromiseDemo />
+          </Section>
+
+          <Section id="list-grid" title="SkeletonList: grid (count=4)" wide>
+            <div className="products">
+              <SkeletonList items={loading ? undefined : listProducts} placeholder={() => productPlaceholder} count={4}>
+                {(p) => <ProductCard key={p.id} product={p} />}
+              </SkeletonList>
+            </div>
+          </Section>
+
+          <Section id="list-table" title="SkeletonList: table (as='tbody')" wide>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Customer</th>
+                  <th className="num">Amount</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <SkeletonList as="tbody" items={loading ? undefined : listInvoices} placeholder={invoicePlaceholder} count={3}>
+                {(r) => <InvoiceRow key={r.id} row={r} />}
+              </SkeletonList>
+            </table>
+          </Section>
+
+          <Section id="list-ul" title="SkeletonList: as='ul'">
+            <SkeletonList as="ul" className="inbox" items={loading ? undefined : listMessages} placeholder={messagePlaceholder} count={4}>
+              {(m) => <InboxItem key={m.id} message={m} />}
+            </SkeletonList>
+          </Section>
 
           <Section id="table" title="Table rows (as='tbody')" wide>
             <table className="table">
@@ -541,6 +601,17 @@ function UntypedUser({ promise }: { promise: PromiseLike<User> }) {
   return (
     <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
       <UserCard user={user} />
+    </div>
+  );
+}
+
+function ListPromiseDemo() {
+  const { promise } = useDemoPromise(listPosts);
+  return (
+    <div className="feed">
+      <SkeletonList promise={promise} placeholder={postPlaceholder} count={3}>
+        {(p) => <PostItem key={p.id} post={p} />}
+      </SkeletonList>
     </div>
   );
 }

@@ -88,6 +88,11 @@ const GEOMETRY_FIXTURES = [
   "suspense-shorthand",
   "suspense-manual",
   "suspense-attrs",
+  "list",
+  "list-promise",
+  "list-grid",
+  "list-table",
+  "list-ul",
 ];
 
 for (const fixture of GEOMETRY_FIXTURES) {
@@ -786,4 +791,101 @@ test("SkeletonSuspense with id: placeholders culled off-screen don't fall back t
   await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
   expect(Math.abs((await root.evaluate((el) => el.getBoundingClientRect().height)) - loadedHeight)).toBeLessThan(1);
   expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+});
+
+/** Bones grouped by the item box (`selector`) they sit in, relative to that box. */
+async function bonesPerItem(page: Page, fixture: string, selector: string): Promise<R[][]> {
+  await bones(page, fixture);
+  return page.evaluate(
+    ([id, sel]) => {
+      const root = document.querySelector(`[data-fixture="${id}"]`)!;
+      const boxes = Array.from(root.querySelectorAll(sel!)).map((el) => el.getBoundingClientRect());
+      const groups: R[][] = boxes.map(() => []);
+      for (const b of Array.from(root.querySelectorAll<HTMLElement>("[data-bone]"))) {
+        const r = b.getBoundingClientRect();
+        const i = boxes.findIndex(
+          (x) => r.top >= x.top - 0.5 && r.bottom <= x.bottom + 0.5 && r.left >= x.left - 0.5 && r.right <= x.right + 0.5,
+        );
+        if (i >= 0) groups[i]!.push({ x: r.left - boxes[i]!.left, y: r.top - boxes[i]!.top, w: r.width, h: r.height, kind: b.dataset.bone });
+      }
+      return groups;
+    },
+    [fixture, selector],
+  );
+}
+
+function expectIdenticalRows(groups: R[][], count: number) {
+  expect(groups.length).toBe(count);
+  expect(groups[0]!.length).toBeGreaterThan(2);
+  for (const g of groups.slice(1)) {
+    expect(g.length).toBe(groups[0]!.length);
+    for (const [i, b] of g.entries()) {
+      const a = groups[0]![i]!;
+      expect(Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + Math.abs(b.w - a.w) + Math.abs(b.h - a.h)).toBeLessThan(1);
+    }
+  }
+}
+
+test("SkeletonList: count identical placeholder rows, then the real rows", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list"]');
+  const wrapper = root.locator("[data-autoskeleton]");
+  await expect(wrapper).toHaveAttribute("aria-busy", "true");
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expectIdenticalRows(await bonesPerItem(page, "list", ".post"), 3);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(wrapper).not.toHaveAttribute("aria-busy");
+  await expect(root.locator(".post strong")).toHaveText(["Grace Hopper", "Alan Turing", "Katherine Johnson"]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // Back to loading: placeholder rows again (no duplicate-key warnings either way).
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expect((await bones(page, "list")).length).toBeGreaterThan(5);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: grid and ul rows repeat the placeholder count times", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  await expect(page.locator('[data-fixture="list-grid"] .product')).toHaveCount(4);
+  expectIdenticalRows(await bonesPerItem(page, "list-grid", ".product"), 4);
+  await expect(page.locator('[data-fixture="list-ul"] ul[data-autoskeleton] > li')).toHaveCount(4);
+  expect((await bones(page, "list-ul")).length).toBeGreaterThan(4);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator('[data-fixture="list-grid"] .product-title')).toHaveText(["Desk lamp", "Ceramic mug", "Notebook", "Wool throw"]);
+  await expect(page.locator('[data-fixture="list-ul"] li strong')).toHaveText(["Sender 0", "Sender 1", "Sender 2", "Sender 3"]);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: table rows as tbody, layer portaled out of the table", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-table"]');
+  await expect(root.locator("tbody[data-autoskeleton] > tr")).toHaveCount(3);
+  await expect(root.locator("table [data-autoskeleton-layer]")).toHaveCount(0);
+  expectIdenticalRows(await bonesPerItem(page, "list-table", "tbody tr"), 3);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("tbody tr td:first-child")).toHaveText(["INV-001", "INV-002", "INV-003"]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: promise shows placeholder rows while pending, resolved rows after", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-promise"]');
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expectIdenticalRows(await bonesPerItem(page, "list-promise", ".post"), 3);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator(".post strong")).toHaveText(["Grace Hopper", "Alan Turing", "Katherine Johnson"]);
+  await expect(root.locator("[data-autoskeleton]")).not.toHaveAttribute("aria-busy");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // A new promise suspends again: placeholder rows come back.
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  expect((await bones(page, "list-promise")).length).toBeGreaterThan(5);
+  expect(errors).toEqual([]);
 });

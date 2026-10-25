@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { Writable } from "node:stream";
 import { renderToPipeableStream, renderToString } from "react-dom/server";
-import { Skeleton, SkeletonSuspense, fake, usePlaceholder, useSkeleton, useSuspenseData } from "../dist/index.js";
+import { Skeleton, SkeletonList, SkeletonSuspense, fake, usePlaceholder, useSkeleton, useSuspenseData } from "../dist/index.js";
 
 // usePlaceholder: nested fields straight in JSX, no children function.
 let lazyCalls = 0;
@@ -199,5 +199,39 @@ const failed = await stream(
 );
 assert.equal(failed.errors[0]?.message, "boom");
 assert.match(failed.shell, /aria-busy="true"/);
+
+// SkeletonList: one placeholder item rendered `count` times, then the real items.
+const rowPh = { id: "row", title: fake.sentence(4) };
+const li = (r) => h("li", { key: r.id }, r.title);
+const tr = (r) => h("tr", { key: r.id }, h("td", null, r.title));
+const phLi = `<li>${fake.sentence(4)}</li>`;
+
+const pendingList = renderToString(h(SkeletonList, { as: "ul", items: null, placeholder: rowPh, count: 4 }, li));
+assert.match(pendingList, new RegExp(`<ul data-autoskeleton="" aria-busy="true" data-pending="" style="display:contents;visibility:hidden">(${phLi}){4}`));
+// Default count is 3, and a lazy placeholder works the same.
+assert.equal(renderToString(h(SkeletonList, { as: "ul", placeholder: () => rowPh }, li)).split(phLi).length - 1, 3);
+// Loaded items render as-is, not busy.
+const loadedList = renderToString(h(SkeletonList, { as: "ul", items: [{ id: "a", title: "A" }, { id: "b", title: "B" }], placeholder: rowPh }, li));
+assert.match(loadedList, /<ul data-autoskeleton="" style="display:contents"><li>A<\/li><li>B<\/li><\/ul>/);
+// Explicit loading over stale items (refetch): the stale rows, hidden.
+assert.match(
+  renderToString(h(SkeletonList, { as: "ul", items: [{ id: "a", title: "A" }], loading: true, placeholder: rowPh }, li)),
+  /aria-busy="true"[^>]*><li>A<\/li><span data-autoskeleton-layer/,
+);
+// Table: rows straight in the tbody, no layer inside it.
+const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
+assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));
+assert.doesNotMatch(tableList, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
+// promise: placeholder rows as the Suspense fallback, then the streamed items.
+assert.equal(renderToString(h(SkeletonList, { as: "ul", promise: pending, placeholder: rowPh, count: 2 }, li)).split(phLi).length - 1, 2);
+let resolveRows;
+const rowsLater = new Promise((r) => (resolveRows = r));
+const streamedList = await stream(
+  h("main", null, h(SkeletonList, { as: "ul", promise: rowsLater, placeholder: rowPh, count: 2 }, li)),
+  () => resolveRows([{ id: "x", title: "Streamed row" }]),
+);
+assert.match(streamedList.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true"[^>]*>(${phLi}){2}`));
+assert.match(streamedList.all, /<ul data-autoskeleton="" style="display:contents"><li>Streamed row<\/li><\/ul>/);
+assert.deepEqual(streamedList.errors, []);
 
 console.log("ssr ok");
