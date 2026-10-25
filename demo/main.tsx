@@ -1,4 +1,4 @@
-import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { Component, StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Skeleton,
@@ -242,6 +242,14 @@ function App() {
             </Skeleton>
           </Section>
 
+          <Section id="promise" title="Suspense: promise prop">
+            <PromiseDemo />
+          </Section>
+
+          <Section id="suspense-manual" title="Suspense: hand-wired fallback">
+            <ManualSuspenseDemo />
+          </Section>
+
           <Section id="table" title="Table rows (as='tbody')" wide>
             <table className="table">
               <thead>
@@ -379,6 +387,10 @@ function App() {
           <Section id="suspense" title="Suspense fallback via id cache">
             <SuspenseDemo />
           </Section>
+
+          <Section id="promise-error" title="Suspense: rejected promise → error boundary">
+            <PromiseErrorDemo />
+          </Section>
         </main>
       </div>
     </SkeletonProvider>
@@ -407,6 +419,124 @@ function SuspenseDemo() {
           <SuspendingProfile k={k} />
         </Skeleton>
       </Suspense>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Suspense with promises. Each demo gets a pending promise while the global
+// switch says "loading", resolved when it flips (a new one on each reload).
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+  return { promise, resolve, reject };
+}
+/** Already settled and marked so (the `use()` convention): renders without suspending. */
+function settled<T>(value: T): Deferred<T> {
+  const promise = Object.assign(Promise.resolve(value), { status: "fulfilled", value });
+  return { promise, resolve: () => {}, reject: () => {} };
+}
+
+function useDemoPromise<T>(value: T): Deferred<T> {
+  const loading = useLoading();
+  const [d, setD] = useState(() => (loading ? deferred<T>() : settled(value)));
+  const [prev, setPrev] = useState(loading);
+  if (prev !== loading) {
+    setPrev(loading);
+    if (loading) setD(deferred<T>());
+  }
+  useEffect(() => {
+    if (!loading) d.resolve(value);
+  }, [loading, d, value]);
+  return d;
+}
+
+const demoPosts = SAME ? postsPlaceholder : realPosts;
+
+function PromiseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <Skeleton promise={promise} placeholder={postsPlaceholder}>
+      {(posts) => <Feed posts={posts} />}
+    </Skeleton>
+  );
+}
+
+// A component that suspends by itself (like useSuspenseQuery), with the
+// skeleton wired up as the fallback by hand.
+const statusOf = new WeakMap<Promise<unknown>, { value?: unknown; done: boolean }>();
+function read<T>(promise: Promise<T>): T {
+  const known = (promise as { status?: string; value?: T }).status === "fulfilled";
+  if (known) return (promise as unknown as { value: T }).value;
+  let s = statusOf.get(promise);
+  if (!s) {
+    s = { done: false };
+    statusOf.set(promise, s);
+    promise.then((value) => statusOf.set(promise, { value, done: true }));
+  }
+  if (s.done) return s.value as T;
+  throw promise;
+}
+function SuspendingFeed({ promise }: { promise: Promise<Post[]> }) {
+  return <Feed posts={read(promise)} />;
+}
+function ManualSuspenseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <Suspense
+      fallback={
+        <Skeleton loading>
+          <Feed posts={postsPlaceholder} />
+        </Skeleton>
+      }
+    >
+      <SuspendingFeed promise={promise} />
+    </Suspense>
+  );
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="fallback" role="alert">
+        Couldn't load: {this.state.error.message}{" "}
+        <button id="promise-retry" onClick={this.props.onRetry}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+}
+
+function PromiseErrorDemo() {
+  const demo = useDemoPromise(SAME ? userPlaceholder : realUser);
+  // A retry starts a fresh request, independent of the global switch.
+  const [retry, setRetry] = useState<{ n: number; d: Deferred<User> } | null>(null);
+  const current = retry?.d ?? demo;
+  return (
+    <div>
+      <button id="promise-reject" onClick={() => current.reject(new Error("Network down"))}>
+        Fail request
+      </button>{" "}
+      <button id="promise-resolve" onClick={() => current.resolve(realUser)}>
+        Resolve
+      </button>
+      <ErrorBoundary key={retry?.n ?? 0} onRetry={() => setRetry((r) => ({ n: (r?.n ?? 0) + 1, d: deferred<User>() }))}>
+        <Skeleton promise={current.promise} placeholder={userPlaceholder}>
+          {(u) => <UserCard user={u} />}
+        </Skeleton>
+      </ErrorBoundary>
     </div>
   );
 }

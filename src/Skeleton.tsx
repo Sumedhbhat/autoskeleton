@@ -4,6 +4,7 @@ import {
   version as reactVersion,
   createContext,
   createElement,
+  Suspense,
   useContext,
   useEffect,
   useInsertionEffect,
@@ -19,6 +20,7 @@ import {
 import { createPortal } from "react-dom";
 import { loadLayout, normalize, saveLayout, type CachedLayout } from "./cache";
 import { FALLBACK_ATTR, LAYER_ATTR, layoutKey, measureBones, type Bone, type BoneLayout, type Rect } from "./measure";
+import { readPromise } from "./promise";
 import { autoskeletonCss, injectStyles } from "./styles";
 
 // React 19 can hoist and dedupe <style precedence> (also during SSR).
@@ -93,6 +95,9 @@ const OWN_PROPS = new Set([
   "injectStyles",
   "nonce",
   "inert",
+  // Internal to SkeletonSuspense / the promise prop.
+  "promise",
+  "handoff",
 ]);
 
 function htmlAttributes(props: object): Record<string, unknown> {
@@ -128,6 +133,7 @@ interface NodeProps extends BaseProps {
   children?: ReactNode;
   data?: never;
   placeholder?: never;
+  promise?: never;
 }
 
 interface RenderProps<T> extends BaseProps {
@@ -136,9 +142,50 @@ interface RenderProps<T> extends BaseProps {
   /** Stand-in data with the same shape, used to lay out the skeleton. */
   placeholder?: T | (() => T);
   children: (data: T) => ReactNode;
+  promise?: never;
 }
 
-export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & SkeletonHTMLAttributes;
+interface PromiseProps<T> extends Omit<BaseProps, "loading"> {
+  /**
+   * The data, as a promise. Wraps the children in its own <Suspense>: the
+   * fallback is `children(placeholder)` as a skeleton, then `children(value)`
+   * once it resolves. Rejections go to the nearest error boundary. While it's
+   * null/undefined (not started yet) the skeleton shows.
+   */
+  promise: PromiseLike<T> | null | undefined;
+  /** Stand-in data with the same shape, used to lay out the skeleton. */
+  placeholder?: T | (() => T);
+  children: (data: T) => ReactNode;
+  data?: never;
+  loading?: never;
+}
+
+export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T> | PromiseProps<T>) & SkeletonHTMLAttributes;
+
+interface HandoffEntry {
+  layout: BoneLayout;
+  /** Where the layer the bones are relative to sat, from the wrapper's parent's corner. */
+  x: number;
+  y: number;
+}
+
+/** The last layout a Suspense fallback drew, kept for the content to fade out. */
+interface Handoff {
+  save(entry: HandoffEntry): void;
+  peek(): HandoffEntry | null;
+  clear(): void;
+}
+
+function createHandoff(): Handoff {
+  let last: HandoffEntry | null = null;
+  return {
+    save: (entry) => void (last = entry),
+    peek: () => last,
+    clear: () => void (last = null),
+  };
+}
+
+type ViewProps<T> = (NodeProps | RenderProps<T>) & { handoff?: Handoff };
 
 const EMPTY: BoneLayout = { bones: [], width: 0, height: 0, left: 0, top: 0 };
 
@@ -221,13 +268,60 @@ function boneStyle(b: Bone, layout: BoneLayout): CSSProperties {
   return s as CSSProperties;
 }
 
+function shift(l: BoneLayout, dx: number, dy: number): BoneLayout {
+  if (!dx && !dy) return l;
+  return { ...l, left: l.left + dx, top: l.top + dy, bones: l.bones.map((b) => ({ ...b, x: b.x + dx, y: b.y + dy })) };
+}
+
 /**
  * Wrap any UI. While `loading`, the real children are rendered invisibly
  * (and inert), measured, and replaced on screen by a skeleton with the same
  * shape: one bar per line of text, blocks for images/buttons/inputs, and the
  * card surfaces they sit on.
+ *
+ * With `promise`, it also sets up the Suspense boundary: the skeleton of
+ * `children(placeholder)` is the fallback, `children(value)` the content.
  */
 export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
+  // Separate component types so each form keeps its own stable hook order.
+  if ("promise" in props && typeof props.children === "function" && !("data" in props)) {
+    return <PromiseSkeleton<T> {...(props as PromiseProps<T>)} />;
+  }
+  return <SkeletonView<T> {...(props as ViewProps<T>)} />;
+}
+
+function PromiseSkeleton<T>(props: PromiseProps<T>): ReactElement {
+  const { promise, placeholder, children, ...rest } = props;
+  // Outlives the fallback, so the content can fade out the fallback's bones.
+  const [handoff] = useState(createHandoff);
+  const skeleton = (
+    <SkeletonView<T> {...rest} data={undefined} placeholder={placeholder} handoff={handoff}>
+      {children}
+    </SkeletonView>
+  );
+  return (
+    <Suspense fallback={skeleton}>
+      {promise == null ? (
+        skeleton
+      ) : (
+        <Resolved
+          promise={promise}
+          render={(value) => (
+            <SkeletonView {...rest} fallback={undefined} handoff={handoff}>
+              {children(value)}
+            </SkeletonView>
+          )}
+        />
+      )}
+    </Suspense>
+  );
+}
+
+function Resolved<T>({ promise, render }: { promise: PromiseLike<T>; render: (value: T) => ReactNode }): ReactElement {
+  return <>{render(readPromise(promise))}</>;
+}
+
+function SkeletonView<T>(props: ViewProps<T>): ReactElement {
   const config = { ...useContext(ConfigContext), ...stripUndefined(props) };
   const ancestorLoading = useContext(LoadingContext);
   const isRenderProp = typeof props.children === "function";
@@ -248,10 +342,16 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
 
   const wrapperRef = useRef<HTMLElement>(null);
   const layerRef = useRef<HTMLSpanElement>(null);
+  const fade = config.fade ?? 200;
+  const handoff = props.handoff;
   const [layout, setLayout] = useState<BoneLayout>(EMPTY);
   const [cached, setCached] = useState<CachedLayout | null>(null);
   const [empty, setEmpty] = useState(false);
   const [exiting, setExiting] = useState(false);
+  // Bones handed over by a Suspense fallback, waiting to be anchored here.
+  const [entry, setEntry] = useState<HandoffEntry | null>(null);
+  // One frame at full opacity before `data-exiting`, so the transition runs.
+  const [entering, setEntering] = useState(false);
   const [host, setHost] = useState<Element | null>(null);
 
   const latest = useRef({ config, showBones, cached });
@@ -310,8 +410,42 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       if (cfg.id) saveLayout(cfg.id, normalize(next, containerWidth(wrapper)), cfg.persist !== false);
     }
 
+    if (handoff && next.bones.length && wrapper.parentElement) {
+      const p = wrapper.parentElement.getBoundingClientRect();
+      handoff.save({ layout: next, x: origin.left - p.left, y: origin.top - p.top });
+    }
     if (layoutKey(next) !== layoutKey(layout)) setLayout(next);
   };
+
+  // Content revealed by a Suspense boundary (first mount, or shown again
+  // after a refetch): pick up the fallback's last bones and fade them out
+  // over the content, as if it were the same skeleton.
+  useIsoLayoutEffect(() => {
+    const h = handoff?.peek();
+    if (!h) return;
+    handoff!.clear();
+    if (showBones || fade <= 0) return;
+    setEntry(h);
+    setLayout(h.layout);
+    setExiting(true);
+    setEntering(true);
+    // Runs on mount, and again when React reveals hidden content.
+  }, [handoff]);
+
+  useIsoLayoutEffect(() => {
+    if (!entry || !entering) return;
+    const layer = layerRef.current;
+    const parent = wrapperRef.current?.parentElement;
+    if (layer && parent) {
+      // This layer isn't where the fallback's was (that one sat after the
+      // placeholder content): re-anchor the bones to where they were drawn.
+      const o = layer.getBoundingClientRect();
+      const p = parent.getBoundingClientRect();
+      setLayout(shift(entry.layout, entry.x - (o.left - p.left), entry.y - (o.top - p.top)));
+    }
+    let raf = requestAnimationFrame(() => (raf = requestAnimationFrame(() => setEntering(false))));
+    return () => cancelAnimationFrame(raf);
+  }, [entry, entering]);
 
   useIsoLayoutEffect(() => {
     const w = wrapperRef.current;
@@ -392,7 +526,6 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
   // Fade the skeleton out over the real content when loading ends. Derived
   // during render so the layer element stays mounted and its opacity
   // transition actually runs.
-  const fade = config.fade ?? 200;
   const [prevShow, setPrevShow] = useState(showBones);
   if (prevShow !== showBones) {
     setPrevShow(showBones);
@@ -400,13 +533,14 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
     if (!showBones && fade <= 0) setLayout(EMPTY);
   }
   useEffect(() => {
-    if (!exiting) return;
+    if (!exiting || entering) return;
     const t = setTimeout(() => {
       setExiting(false);
+      setEntry(null);
       setLayout(EMPTY);
     }, fade);
     return () => clearTimeout(t);
-  }, [exiting, fade]);
+  }, [exiting, entering, fade]);
 
   // Remember the real content's layout so `id` skeletons match it next time.
   const id = config.id;
@@ -443,7 +577,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       ref={layerRef}
       {...{ [LAYER_ATTR]: "" }}
       data-animation={config.animation ?? "shimmer"}
-      data-exiting={exiting && !showBones ? "" : undefined}
+      data-exiting={exiting && !showBones && !entering ? "" : undefined}
       style={layerStyle}
     >
       {host ? status : null}
@@ -471,6 +605,9 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
         {injectEnabled && HOISTED_STYLES
           ? createElement("style", { href: "autoskeleton", precedence: "low", nonce: config.nonce }, autoskeletonCss)
           : null}
+        {/* Handed-over bones are anchored once, before the content, so they stay put
+            if the content's height changes while they fade. */}
+        {entry && !host && !tableAs ? layer : null}
         {content}
         {useCache ? <div data-autoskeleton-spacer="" aria-hidden style={{ height: cached!.height }} /> : null}
         {showFallback ? (
@@ -478,7 +615,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
             {props.fallback}
           </div>
         ) : null}
-        {host || tableAs ? null : layer}
+        {entry || host || tableAs ? null : layer}
       </Wrapper>
       {host || tableAs ? null : status}
       {host && layer ? createPortal(layer, host) : null}
