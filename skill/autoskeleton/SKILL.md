@@ -20,7 +20,7 @@ While loading, the wrapped component must still be able to render. You get
 there by handing it placeholder data of the same shape.
 
 ```tsx
-import { Skeleton, fake, usePlaceholder } from "autoskeleton";
+import { Skeleton, SkeletonList, fake, usePlaceholder } from "autoskeleton";
 ```
 
 No CSS import or provider is needed; styles are injected automatically.
@@ -70,6 +70,26 @@ For content that renders fine while loading, or to skeleton over stale data
 </Skeleton>
 ```
 
+## Pattern D: lists with `SkeletonList`
+
+For a list of same-shaped items (stories, posts, rows, cards), declare **one**
+placeholder item and a `count`. The skeleton is that item rendered `count`
+times (default 3, identical rows), then the same function renders each real
+item. `loading` is `items == null`; pass `loading` to override.
+
+```tsx
+const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: fake.name() };
+
+<SkeletonList items={stories} placeholder={STORY_PLACEHOLDER} count={5}>
+  {(story) => <StoryCard key={story.id} story={story} />}
+</SkeletonList>
+```
+
+Return a keyed element as in `.map()`. Placeholder rows are keyed by index
+for you, so the shared placeholder `id` never collides. `placeholder` may be a
+value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…),
+plus `promise` for a promise of the array (Suspense, below).
+
 ## Writing placeholders
 
 Placeholders only need the right shape and roughly the right text length.
@@ -111,11 +131,14 @@ Guidelines:
   three identical medium ones. With no samples, use typical lengths (a title
   ~6 words, a name 2 words, a price "$00.00").
 - Images: use `fake.image(w, h)` with the real aspect ratio, or the `<img>` will be 0×0 if it has no CSS size.
-- Lists: 3–6 items is usually right; for tables use the page size.
+- Lists: 3–6 items is usually right; for tables use the page size. With
+  `SkeletonList` that's `count`, and the rows are identical by design. When
+  real items vary a lot and the jump matters, use `usePlaceholder` with a
+  varied `fake.list(…)` instead.
 - Enums/booleans: pick the variant whose layout is most common (e.g. `verified: true` if it shows a badge).
 - Keep IDs unique (`fake.id(i)`, or `fake.id(i, "number")` when the type is a
-  number) so React keys don't collide. Numeric ones are negative, so they never
-  match a real record.
+  number) so React keys don't collide (`SkeletonList` handles this itself).
+  Numeric ones are negative, so they never match a real record.
 
 ## Things to remove when converting
 
@@ -125,7 +148,8 @@ Guidelines:
 
 ## Lists, tables, grids
 
-Wrap the whole list once (not each item):
+Wrap the whole list once (not each item). Prefer `SkeletonList` (Pattern D);
+with a varied placeholder array, `usePlaceholder` works too:
 
 ```tsx
 const { data: items, loading } = usePlaceholder(posts, POSTS_PLACEHOLDER);
@@ -135,20 +159,22 @@ const { data: items, loading } = usePlaceholder(posts, POSTS_PLACEHOLDER);
 </Skeleton>
 ```
 
-Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there;
-`rows` from `usePlaceholder`):
+Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there):
 
 ```tsx
 <table>
   <thead>…</thead>
-  <Skeleton as="tbody" loading={loading}>
-    {rows.map((r) => <Row key={r.id} row={r} />)}
-  </Skeleton>
+  <SkeletonList as="tbody" items={rows} placeholder={ROW_PLACEHOLDER} count={PAGE_SIZE}>
+    {(r) => <Row key={r.id} row={r} />}
+  </SkeletonList>
 </table>
 ```
 
-The wrapper is `display: contents`, so it never changes flex/grid layout. Use
-`as="li"`/`as="span"` etc. only when HTML nesting rules require it.
+The wrapper is `display: contents`, so it never changes flex/grid layout: put
+the list directly inside the flex/grid container. For a `<ul>`, use `as="ul"`
+and put margins/padding/grid styles on a parent (its own box is
+`display: contents` too). Use `as="li"`/`as="span"` etc. only when HTML
+nesting rules require it.
 
 HTML attributes (`aria-*`, `data-*`, `role`, `title`, handlers) go to the
 wrapper element, so `<Skeleton as="ul" aria-label="Stories" loading={loading}>`
@@ -166,18 +192,21 @@ stale results while new ones load.
 </Skeleton>
 ```
 
+For a list, `<SkeletonList items={data} loading={isFetching} placeholder={ROW_PLACEHOLDER} count={10}>`
+shows placeholder rows on first load and the skeleton over stale rows after.
+
 **Load more / infinite scroll:** keep loaded items on screen; add a skeleton
 for the next page only, below them.
 
 ```tsx
-<ul>
+<div className="feed">
   {items.map((it) => <Row key={it.id} item={it} />)}
   {loadingMore && (
-    <Skeleton loading>
-      {PAGE_PLACEHOLDER.map((it) => <Row key={it.id} item={it} />)}
-    </Skeleton>
+    <SkeletonList loading placeholder={ROW_PLACEHOLDER} count={PAGE_SIZE}>
+      {(it) => <Row key={it.id} item={it} />}
+    </SkeletonList>
   )}
-</ul>
+</div>
 ```
 
 **Suspense:** use `SkeletonSuspense` + `useSuspenseData`, and pass the
@@ -426,6 +455,9 @@ Static `opacity: 0` content gets no bones.
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder)`: see
 Suspense above.
 
+`<SkeletonList>`: the same props, with `items` (instead of `data`), `placeholder`
+(one item), `count` (default 3) and `promise` (of the array); children get `(item, index)`.
+
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 
 Theme with CSS variables on any ancestor: `--autoskeleton-color`,
@@ -447,8 +479,9 @@ theme for this.
 - [ ] Placeholder images use `fake.image(w, h)` (or the img has CSS width/height).
 - [ ] Early `return <Spinner/>`/`return null` for loading removed.
 - [ ] Old `*Skeleton` components deleted if unused.
+- [ ] Lists of same-shaped items use `SkeletonList` (one placeholder item + `count`).
 - [ ] Tables use `as="tbody"`.
 - [ ] Every `useEffect` in wrapped components (and their children) checked: outside-world effects return early when `useSkeleton()` is true.
 - [ ] Placeholder covers nested objects, nullable fields and anything parsed/formatted (`new Date(...)`, `.toFixed()`, `.map()` on arrays).
-- [ ] Refetch → `loading={isFetching}`; load-more → skeleton only for the new page; Suspense → `<SkeletonSuspense>` with `useSuspenseData(promise, PLACEHOLDER)` in the child.
+- [ ] Refetch → `loading={isFetching}`; load-more → `SkeletonList loading` only for the new page; Suspense → `<SkeletonSuspense>` with `useSuspenseData(promise, PLACEHOLDER)` in the child.
 - [ ] Suspense: pass the placeholder to `useSuspenseData` (typed), not the boundary's untyped `fallback`; no "has no placeholder" or unused-`fallback` warnings in the console.

@@ -108,15 +108,33 @@ closer the lengths are to real data, the less the page moves when data arrives.
 
 ### Tables, lists and grids
 
-The wrapper is `display: contents`, so it never changes flex or grid layout.
-Inside a table, render it as the `tbody` (`rows` from `usePlaceholder`):
+For a list, declare one placeholder item and a count:
+
+```tsx
+const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: fake.name() };
+
+<SkeletonList items={stories} placeholder={STORY_PLACEHOLDER} count={5}>
+  {(story) => <StoryCard key={story.id} story={story} />}
+</SkeletonList>
+```
+
+While `items` is `null` or `undefined`, the skeleton is the placeholder
+rendered `count` times (default 3), as identical rows. The same function then
+renders each real item. Return a keyed element, as in `.map()`. Placeholder
+rows are keyed by index for you, so their shared `id` doesn't collide.
+`loading` overrides the inferred flag. `placeholder` can be a value or
+`() => value`, and every other `<Skeleton>` prop works.
+
+The wrapper is `display: contents`, so it never changes flex or grid layout:
+put the list straight inside the flex or grid container. Inside a table,
+render it as the `tbody`:
 
 ```tsx
 <table>
   <thead>…</thead>
-  <Skeleton as="tbody" loading={loading}>
-    {rows.map((r) => <Row key={r.id} row={r} />)}
-  </Skeleton>
+  <SkeletonList as="tbody" items={rows} placeholder={ROW_PLACEHOLDER} count={PAGE_SIZE}>
+    {(r) => <Row key={r.id} row={r} />}
+  </SkeletonList>
 </table>
 ```
 
@@ -129,6 +147,12 @@ attributes go to the wrapper.
 </Skeleton>
 ```
 
+For a `<ul>`, use `as="ul"`. Its own box is `display: contents` too, so put
+margins, padding and grid styles on a parent.
+
+`<Skeleton as="tbody">` works around any rows too, e.g. a varied placeholder
+array built with `fake.list` and passed through `usePlaceholder`.
+
 ### Refetching and "load more"
 
 ```tsx
@@ -137,12 +161,17 @@ attributes go to the wrapper.
   <Results items={data ?? RESULTS_PLACEHOLDER} />
 </Skeleton>
 
+// Same for a list: placeholder rows on first load, then over the stale rows
+<SkeletonList items={data} loading={isFetching} placeholder={ROW_PLACEHOLDER} count={10}>
+  {(it) => <Row key={it.id} item={it} />}
+</SkeletonList>
+
 // Load more: keep loaded rows, skeleton only the next page
 {items.map((it) => <Row key={it.id} item={it} />)}
 {loadingMore && (
-  <Skeleton loading>
-    {PAGE_PLACEHOLDER.map((it) => <Row key={it.id} item={it} />)}
-  </Skeleton>
+  <SkeletonList loading placeholder={ROW_PLACEHOLDER} count={PAGE_SIZE}>
+    {(it) => <Row key={it.id} item={it} />}
+  </SkeletonList>
 )}
 ```
 
@@ -322,6 +351,14 @@ Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain
 </Suspense>
 ```
 
+Lists take a promise of the array the same way:
+
+```tsx
+<SkeletonList promise={storiesPromise} placeholder={STORY_PLACEHOLDER} count={5}>
+  {(story) => <StoryCard key={story.id} story={story} />}
+</SkeletonList>
+```
+
 How this differs from `loading`:
 
 - Suspense swaps trees, so the content mounts fresh when data arrives. Its
@@ -405,6 +442,10 @@ If you need one, put it on an element inside, or wrap the skeleton.
 
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder?)` are covered
 under Suspense above.
+
+`<SkeletonList>` takes the same props as `<Skeleton>`, with `items` (instead of `data`),
+`placeholder` (one item), `count` (default `3`) and `promise` (of the array).
+Its children function gets `(item, index)`.
 
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 
