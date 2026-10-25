@@ -9,6 +9,7 @@ import {
   useEffect,
   useInsertionEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -21,6 +22,7 @@ import { createPortal } from "react-dom";
 import { loadLayout, normalize, saveLayout, type CachedLayout } from "./cache";
 import { FALLBACK_ATTR, LAYER_ATTR, layoutKey, measureBones, type Bone, type BoneLayout, type Rect } from "./measure";
 import { autoskeletonCss, injectStyles } from "./styles";
+import { createSlot, DEV, PlaceholderContext, type PlaceholderSlot } from "./suspenseData";
 
 // React 19 can hoist and dedupe <style precedence> (also during SSR).
 const HOISTED_STYLES = parseInt(reactVersion, 10) >= 19;
@@ -145,16 +147,18 @@ export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & Skeleton
 
 export interface SkeletonSuspenseProps extends SkeletonConfig {
   /**
-   * What `<Suspense>` would show while the children suspend: the
-   * presentational component with placeholder data. It's rendered invisibly,
-   * measured and painted as a skeleton.
+   * Placeholder data (or `() => data`, called lazily). While the children
+   * suspend, they're rendered again as the skeleton, and every
+   * `useSuspenseData()` in them returns this instead of suspending. It must
+   * have the shape their promise resolves to. Leave it out to draw the
+   * `id`-cached layout instead.
    */
-  fallback?: ReactNode;
-  /** The content. It suspends however it likes: `use()`, `useSuspenseQuery`, `lazy`. */
+  fallback?: unknown;
+  /** The content. Read promises with `useSuspenseData(promise)`. */
   children?: ReactNode;
   /** Passed to `<Suspense name>` (React 19 DevTools). */
   name?: string;
-  /** Cache key, as on `<Skeleton>`: the content's layout is remembered for fallbacks that can't be measured. */
+  /** Cache key, as on `<Skeleton>`: the content's layout is remembered for when there's no `fallback`. */
   id?: string;
   /** Screen-reader text announced while suspended (role="status"). Off by default. */
   label?: string;
@@ -286,17 +290,30 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
 }
 
 /**
- * A drop-in for `<Suspense>`: same props, but the fallback is drawn as a
- * skeleton of itself. When the content shows, the fallback's bones fade out
- * over it.
+ * A `<Suspense>` boundary whose fallback is the children themselves, rendered
+ * with placeholder data and drawn as a skeleton. `fallback` is the data:
+ * `useSuspenseData(promise)` returns it inside the fallback and reads the
+ * promise everywhere else. When the content shows, the fallback's bones fade
+ * out over it.
  */
 export function SkeletonSuspense({ fallback, children, name, ...view }: SkeletonSuspenseProps): ReactElement {
   // Outlives the fallback, so the content can fade out the fallback's bones.
   const [handoff] = useState(createHandoff);
+  const slot = useMemo(() => (fallback === undefined ? null : createSlot(fallback)), [fallback]);
+  // Inside another boundary's fallback: be a fallback too (nearest placeholder
+  // wins), without starting or waiting on this boundary's promises.
+  const inFallback = useContext(PlaceholderContext) !== null;
+  if (inFallback) {
+    return (
+      <SuspenseFallback slot={slot} view={view}>
+        {children}
+      </SuspenseFallback>
+    );
+  }
   const skeleton = (
-    <SkeletonView {...view} loading handoff={handoff}>
-      {fallback}
-    </SkeletonView>
+    <SuspenseFallback slot={slot} view={view} handoff={handoff}>
+      {children}
+    </SuspenseFallback>
   );
   // React 18's <Suspense> ignores `name`.
   return (
@@ -305,6 +322,37 @@ export function SkeletonSuspense({ fallback, children, name, ...view }: Skeleton
         {children}
       </SkeletonView>
     </Suspense>
+  );
+}
+
+function SuspenseFallback({
+  slot,
+  view,
+  handoff,
+  children,
+}: {
+  slot: PlaceholderSlot | null;
+  view: BaseProps;
+  handoff?: Handoff;
+  children: ReactNode;
+}): ReactElement {
+  // After the whole fallback rendered: was the placeholder read at all?
+  useEffect(() => {
+    if (!DEV || !slot?.unused()) return;
+    console.warn(
+      "autoskeleton: <SkeletonSuspense> got a `fallback`, but no useSuspenseData() call in its children " +
+        "returned it, so the skeleton has no placeholder data. Read the children's promises with useSuspenseData(promise).",
+    );
+  });
+  return (
+    <PlaceholderContext.Provider value={slot}>
+      <SkeletonView {...view} loading handoff={handoff}>
+        {/* A child that suspends some other way (useSuspenseQuery, lazy) would
+            suspend the fallback too, and the boundary above would show
+            instead. Contain it: that part is left out of the skeleton. */}
+        {slot ? <Suspense fallback={null}>{children}</Suspense> : null}
+      </SkeletonView>
+    </PlaceholderContext.Provider>
   );
 }
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { Writable } from "node:stream";
 import { renderToPipeableStream, renderToString } from "react-dom/server";
-import { Skeleton, SkeletonSuspense, fake, usePlaceholder } from "../dist/index.js";
+import { Skeleton, SkeletonSuspense, fake, usePlaceholder, useSkeleton, useSuspenseData } from "../dist/index.js";
 
 // usePlaceholder: nested fields straight in JSX, no children function.
 let lazyCalls = 0;
@@ -47,36 +47,52 @@ if (parseInt((await import("react")).version, 10) >= 19) {
   assert.equal(html.match(/data-href="autoskeleton"/g)?.length, 1);
 }
 
-// SkeletonSuspense: the fallback (placeholder skeleton) renders on the server.
+// SkeletonSuspense: the fallback is the child rendering the placeholder data.
 const postsPh = [{ title: fake.sentence(5) }];
 const list = (posts) => h("ul", null, posts.map((p, i) => h("li", { key: i }, p.title)));
-/** A child that suspends by itself until `promise` settles (`use()` that also works on React 18). */
-const status = new WeakMap();
-function Posts({ promise }) {
-  const s = status.get(promise);
-  if (!s) {
-    status.set(promise, { state: "pending" });
-    promise.then(
-      (value) => status.set(promise, { state: "done", value }),
-      (error) => status.set(promise, { state: "failed", error }),
-    );
-  }
-  if (s?.state === "done") return list(s.value);
-  if (s?.state === "failed") throw s.error;
-  throw promise;
+/** Reads the promise with useSuspenseData; marks whether it ran inside the skeleton. */
+function Posts({ promise, placeholder }) {
+  const posts = useSuspenseData(promise, placeholder);
+  return h("section", { "data-skeleton-render": String(useSkeleton()) }, list(posts));
 }
-const suspense = (promise, extra) => h(SkeletonSuspense, { fallback: list(postsPh), ...extra }, h(Posts, { promise }));
+const suspense = (promise, extra) => h(SkeletonSuspense, { fallback: postsPh, ...extra }, h(Posts, { promise }));
 const fallbackHtml = renderToString(suspense(new Promise(() => {})));
 // Inside a Suspense boundary (renderToString can't wait, so it's left for the client).
 assert.match(fallbackHtml, /<!--\$[!?]-->(<template[^>]*><\/template>)?<div data-autoskeleton="" aria-busy="true"/);
-assert.match(fallbackHtml, new RegExp(`aria-busy="true" data-pending="" style="display:contents;visibility:hidden"><ul><li>${fake.sentence(5)}</li>`));
-// Config options reach the fallback skeleton.
-assert.match(renderToString(suspense(new Promise(() => {}), { as: "section", className: "c" })), /<section data-autoskeleton="" aria-busy="true" data-pending="" class="c"/);
+// The same child, rendered with the placeholder, hidden, inside a loading skeleton.
+assert.match(
+  fallbackHtml,
+  new RegExp(`aria-busy="true" data-pending="" style="display:contents;visibility:hidden">(<!--\\$-->)?<section data-skeleton-render="true"><ul><li>${fake.sentence(5)}</li>`),
+);
+// Lazy placeholder, and config options reach the fallback skeleton.
+assert.match(
+  renderToString(suspense(new Promise(() => {}), { fallback: () => postsPh, as: "section", className: "c" })),
+  new RegExp(`<section data-autoskeleton="" aria-busy="true" data-pending="" class="c".*<li>${fake.sentence(5)}</li>`),
+);
+// Nested boundaries: the nearest fallback wins, and the inner one doesn't suspend the outer fallback.
+const userPh = { name: fake.name(3) };
+function User({ promise }) {
+  return h("b", null, useSuspenseData(promise).name);
+}
+const nested = renderToString(
+  h(
+    SkeletonSuspense,
+    { fallback: postsPh },
+    h(Posts, { promise: new Promise(() => {}) }),
+    h(SkeletonSuspense, { fallback: userPh }, h(User, { promise: new Promise(() => {}) })),
+  ),
+);
+assert.ok(nested.includes(`<li>${fake.sentence(5)}</li>`));
+assert.ok(nested.includes(`<b>${fake.name(3)}</b>`));
+// A typed placeholder on the call wins over the boundary's.
+const override = renderToString(
+  h(SkeletonSuspense, { fallback: userPh }, h(Posts, { promise: new Promise(() => {}), placeholder: [{ title: "Own" }] })),
+);
+assert.ok(override.includes("<li>Own</li>"));
 // Nothing suspends: the content directly, no fallback.
-const ready = Promise.resolve([{ title: "Done" }]);
-status.set(ready, { state: "done", value: [{ title: "Done" }] });
+const ready = Object.assign(Promise.resolve([{ title: "Done" }]), { status: "fulfilled", value: [{ title: "Done" }] });
 const readyHtml = renderToString(suspense(ready));
-assert.match(readyHtml, /<div data-autoskeleton="" style="display:contents"><ul><li>Done<\/li>/);
+assert.match(readyHtml, /<div data-autoskeleton="" style="display:contents"><section data-skeleton-render="false"><ul><li>Done<\/li>/);
 assert.ok(!readyHtml.includes(fake.sentence(5)));
 
 /** Stream a tree; resolve `release` after the shell is out. */
@@ -116,11 +132,11 @@ const streamed = await stream(
   h("main", null, suspense(later)),
   () => resolvePosts([{ title: "Streamed" }]),
 );
-assert.match(streamed.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true"[^>]*><ul><li>${fake.sentence(5)}</li>`));
+assert.match(streamed.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true".*data-skeleton-render="true"><ul><li>${fake.sentence(5)}</li>`));
 assert.doesNotMatch(streamed.shell, /Streamed/);
 // The content's wrapper streams in, then the child's segment fills it.
 assert.match(streamed.all, /<div hidden id="S:\d+"><div data-autoskeleton="" style="display:contents">/);
-assert.match(streamed.all, /<ul><li>Streamed<\/li>/);
+assert.match(streamed.all, /<section data-skeleton-render="false"><ul><li>Streamed<\/li>/);
 assert.deepEqual(streamed.errors, []);
 
 // Rejection: reported through onError, the fallback stays for the client to retry and throw.

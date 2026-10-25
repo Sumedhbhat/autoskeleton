@@ -8,6 +8,7 @@ import {
   measureBones,
   usePlaceholder,
   useSkeleton,
+  useSuspenseData,
   type SkeletonAnimation,
 } from "autoskeleton";
 import {
@@ -243,17 +244,23 @@ function App() {
             </Skeleton>
           </Section>
 
-          <Section id="skeleton-suspense" title="SkeletonSuspense (drop-in for Suspense)">
+          <Section id="skeleton-suspense" title="SkeletonSuspense + useSuspenseData">
             <SkeletonSuspenseDemo />
           </Section>
 
-          <Section id="suspense-self" title="SkeletonSuspense: self-suspending child">
-            <SelfSuspendingDemo />
+          <Section id="suspense-override" title="SkeletonSuspense: two reads, typed override">
+            <OverrideDemo />
           </Section>
 
-          <Section id="suspense-manual" title="Suspense: hand-wired fallback">
+          <Section id="suspense-manual" title="useSuspenseData outside a boundary (plain Suspense)">
             <ManualSuspenseDemo />
           </Section>
+
+          {params.has("ignored") ? (
+            <Section id="suspense-ignored" title="SkeletonSuspense: child suspends some other way">
+              <IgnoredDemo />
+            </Section>
+          ) : null}
 
           <Section id="table" title="Table rows (as='tbody')" wide>
             <table className="table">
@@ -465,8 +472,82 @@ function useDemoPromise<T>(value: T): Deferred<T> {
 const demoPosts = SAME ? postsPlaceholder : realPosts;
 const demoUser = SAME ? userPlaceholder : realUser;
 
-// `use(promise)` for React 18 and 19: throw the promise until it settles,
-// then return its value or throw its rejection.
+/** Reads its promise with useSuspenseData: the placeholder in the fallback, the posts after. */
+function SuspendingFeed({ promise, placeholder }: { promise: Promise<Post[]>; placeholder?: Post[] }) {
+  const posts = useSuspenseData(promise, placeholder);
+  const inSkeleton = useSkeleton();
+  const [fired, setFired] = useState(0);
+  useEffect(() => {
+    if (inSkeleton) return;
+    // Stand-in for an outside-world effect: it must not run with placeholder data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFired((n) => n + 1);
+  }, [inSkeleton]);
+  return (
+    <div className="suspense-reader" data-reader="feed" data-in-skeleton={inSkeleton ? "" : undefined} data-tracked={fired}>
+      <Feed posts={posts} />
+    </div>
+  );
+}
+function SuspendingUser({ promise }: { promise: PromiseLike<User> }) {
+  const user = useSuspenseData(promise);
+  return (
+    <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
+      <UserCard user={user} />
+    </div>
+  );
+}
+
+function SkeletonSuspenseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense fallback={postsPlaceholder}>
+      <SuspendingFeed promise={promise} />
+    </SkeletonSuspense>
+  );
+}
+
+// A request the global switch restarts and resolves, read from module scope.
+let userRequest = loadingState ? deferred<User>() : settled(demoUser);
+listeners.add(() => {
+  if (loadingState) userRequest = deferred<User>();
+  else userRequest.resolve(demoUser);
+});
+
+// Two reads under one boundary: the user gets the boundary's placeholder, the
+// feed (another shape) its own typed one.
+function OverrideDemo() {
+  useLoading();
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense fallback={() => userPlaceholder}>
+      <div className="feed">
+        <SuspendingUser promise={userRequest.promise} />
+        <SuspendingFeed promise={promise} placeholder={postsPlaceholder} />
+      </div>
+    </SkeletonSuspense>
+  );
+}
+
+// useSuspenseData outside a SkeletonSuspense is `use()`: a plain <Suspense>
+// with a hand-wired skeleton fallback.
+function ManualSuspenseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <Suspense
+      fallback={
+        <Skeleton loading>
+          <Feed posts={postsPlaceholder} />
+        </Skeleton>
+      }
+    >
+      <SuspendingFeed promise={promise} />
+    </Suspense>
+  );
+}
+
+// `use(promise)` for React 18 and 19, standing in for useSuspenseQuery: it
+// suspends without useSuspenseData, so it never sees the placeholder.
 type Status<T> = { state: "pending" } | { state: "done"; value: T } | { state: "failed"; error: unknown };
 const statusOf = new WeakMap<Promise<unknown>, Status<unknown>>();
 function read<T>(promise: Promise<T>): T {
@@ -485,55 +566,15 @@ function read<T>(promise: Promise<T>): T {
   if (s.state === "failed") throw s.error;
   throw promise;
 }
-function SuspendingFeed({ promise }: { promise: Promise<Post[]> }) {
-  return <Feed posts={read(promise)} />;
-}
-function SuspendingUser({ promise }: { promise: Promise<User> }) {
-  return <UserCard user={read(promise)} />;
-}
-
-// The drop-in: <Suspense> with a skeletonized fallback.
-function SkeletonSuspenseDemo() {
-  const { promise } = useDemoPromise(demoPosts);
-  return (
-    <SkeletonSuspense fallback={<Feed posts={postsPlaceholder} />}>
-      <SuspendingFeed promise={promise} />
-    </SkeletonSuspense>
-  );
-}
-
-// A component that suspends by itself, like useSuspenseQuery: no promise
-// prop, it reads a request the global switch restarts and resolves.
-let userRequest = loadingState ? deferred<User>() : settled(demoUser);
-listeners.add(() => {
-  if (loadingState) userRequest = deferred<User>();
-  else userRequest.resolve(demoUser);
-});
 function SelfLoadingUser() {
   useLoading();
   return <UserCard user={read(userRequest.promise)} />;
 }
-function SelfSuspendingDemo() {
+function IgnoredDemo() {
   return (
-    <SkeletonSuspense fallback={<UserCard user={userPlaceholder} />}>
+    <SkeletonSuspense fallback={userPlaceholder}>
       <SelfLoadingUser />
     </SkeletonSuspense>
-  );
-}
-
-// The same, wired by hand: <Suspense> with a loading <Skeleton> as the fallback.
-function ManualSuspenseDemo() {
-  const { promise } = useDemoPromise(demoPosts);
-  return (
-    <Suspense
-      fallback={
-        <Skeleton loading>
-          <Feed posts={postsPlaceholder} />
-        </Skeleton>
-      }
-    >
-      <SuspendingFeed promise={promise} />
-    </Suspense>
   );
 }
 
@@ -569,7 +610,7 @@ function SuspenseErrorDemo() {
         Resolve
       </button>
       <ErrorBoundary key={retry?.n ?? 0} onRetry={() => setRetry((r) => ({ n: (r?.n ?? 0) + 1, d: deferred<User>() }))}>
-        <SkeletonSuspense fallback={<UserCard user={userPlaceholder} />}>
+        <SkeletonSuspense fallback={userPlaceholder}>
           <SuspendingUser promise={current.promise} />
         </SkeletonSuspense>
       </ErrorBoundary>
