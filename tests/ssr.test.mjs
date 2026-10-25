@@ -218,6 +218,11 @@ assert.match(
   renderToString(h(SkeletonList, { as: "ul", items: [{ id: "a", title: "A" }], loading: true, placeholder: rowPh }, li)),
   /aria-busy="true"[^>]*><li>A<\/li><span data-autoskeleton-layer/,
 );
+// Explicit loading over an empty list: placeholder rows, since [] has nothing to measure.
+assert.equal(
+  renderToString(h(SkeletonList, { as: "ul", items: [], loading: true, placeholder: rowPh, count: 2 }, li)).split(phLi).length - 1,
+  2,
+);
 // Table: rows straight in the tbody, no layer inside it.
 const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
 assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));

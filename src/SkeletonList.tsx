@@ -39,7 +39,13 @@ export function SkeletonList<T>({ placeholder, count = 3, children, items, loadi
       : list.map((item, i) => children(item, i));
 
   return (
-    <Skeleton<readonly T[]> {...rest} data={items} loading={loading} placeholder={makePlaceholder}>
+    // An empty list has nothing to measure, so while loading it gets the placeholder rows.
+    <Skeleton<readonly T[]>
+      {...rest}
+      data={loading && items?.length === 0 ? null : items}
+      loading={loading}
+      placeholder={makePlaceholder}
+    >
       {render}
     </Skeleton>
   );
