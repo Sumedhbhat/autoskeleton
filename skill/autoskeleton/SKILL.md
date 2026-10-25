@@ -20,34 +20,52 @@ While loading, the wrapped component must still be able to render. You get
 there by handing it placeholder data of the same shape.
 
 ```tsx
-import { Skeleton, fake } from "autoskeleton";
+import { Skeleton, fake, usePlaceholder } from "autoskeleton";
 ```
 
 No CSS import or provider is needed; styles are injected automatically.
 
-## Pattern A: render prop (preferred)
+## Pattern A: `usePlaceholder` (preferred)
 
-`loading` is inferred from `data == null`. The render function gets real data
-when it exists, the placeholder otherwise, and it's always typed as `T`.
+`usePlaceholder(data, placeholder)` returns the real data when it exists, the
+placeholder otherwise, always typed as `T`, plus `loading` (`data == null`).
+Use the data directly in JSX, nested fields included. No children function.
 
 ```tsx
-const { data: user } = useQuery(...);
+const query = useQuery(...);
+const { data: d, loading } = usePlaceholder(query.data, PROFILE_PLACEHOLDER);
 
+<Skeleton loading={loading}>
+  <UserCard user={d.user} />
+  <PostList posts={d.posts} />
+</Skeleton>
+```
+
+When the loading flag isn't "data is null" (several queries, mutations), pass
+it: `usePlaceholder(data, PLACEHOLDER, { loading: isLoading || isFetchingNextPage })`.
+`placeholder` may be a value or `() => value` (called once, when first needed).
+Call the hook in the component that owns the query, above the `<Skeleton>`.
+
+## Pattern B: render prop
+
+Same behavior, inline. `loading` is inferred from `data == null`.
+
+```tsx
 <Skeleton data={user} placeholder={USER_PLACEHOLDER}>
   {(u) => <UserCard user={u} />}
 </Skeleton>
 ```
 
-## Pattern B: explicit `loading`
+## Pattern C: explicit `loading`
+
+For content that renders fine while loading, or to skeleton over stale data
+(see Refetching below):
 
 ```tsx
 <Skeleton loading={isLoading}>
-  <UserCard user={user ?? USER_PLACEHOLDER} />
+  <SettingsForm plan={plan} />
 </Skeleton>
 ```
-
-Use B when the loading flag isn't "data is null" (refetching, several queries,
-mutations): `loading={isLoading || isFetchingNextPage}`.
 
 ## Writing placeholders
 
@@ -97,25 +115,28 @@ Guidelines:
 
 1. Early returns: `if (isLoading) return <Spinner />` / `return <UserCardSkeleton />` / `if (!data) return null`. Replace them with the `<Skeleton>` wrapper.
 2. The old skeleton component and its CSS (once nothing imports it).
-3. Optional chaining sprinkled only to survive `undefined` (`user?.name ?? ""`) can stay, but it's no longer needed inside the render prop.
+3. Optional chaining and fallbacks sprinkled only to survive `undefined` (`user?.name ?? ""`, `data?.user`). Data from `usePlaceholder` or the render prop is never null; drop them.
 
 ## Lists, tables, grids
 
 Wrap the whole list once (not each item):
 
 ```tsx
-<Skeleton data={posts} placeholder={POSTS_PLACEHOLDER}>
-  {(items) => items.map((p) => <PostCard key={p.id} post={p} />)}
+const { data: items, loading } = usePlaceholder(posts, POSTS_PLACEHOLDER);
+
+<Skeleton loading={loading}>
+  {items.map((p) => <PostCard key={p.id} post={p} />)}
 </Skeleton>
 ```
 
-Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there):
+Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there;
+`rows` from `usePlaceholder`):
 
 ```tsx
 <table>
   <thead>…</thead>
-  <Skeleton as="tbody" data={rows} placeholder={ROWS_PLACEHOLDER}>
-    {(rs) => rs.map((r) => <Row key={r.id} row={r} />)}
+  <Skeleton as="tbody" loading={loading}>
+    {rows.map((r) => <Row key={r.id} row={r} />)}
   </Skeleton>
 </table>
 ```
@@ -173,7 +194,7 @@ function Comments({ promise }: { promise: Promise<Comment[]> }) {
 If the component calls `useQuery` inside itself, the placeholder trick doesn't
 apply directly. Options, in order of preference:
 
-1. Split it: `UserCard` (presentational, takes `user`) + `UserCardContainer` (fetches, renders `<Skeleton data={data} placeholder={…}>{u => <UserCard user={u}/>}</Skeleton>`).
+1. Split it: `UserCard` (presentational, takes `user`) + `UserCardContainer` (fetches, calls `usePlaceholder(data, USER_PLACEHOLDER)`, renders `<Skeleton loading={loading}><UserCard user={user} /></Skeleton>`).
 2. Wrap the place it's used with Suspense and an `id` skeleton (see below).
 
 ## No placeholder possible: `id` + `fallback`
@@ -252,7 +273,7 @@ text becomes its own bar; content inside scroll containers is clipped.
 | Prop | Default | Notes |
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
-| `data` / `placeholder` / children fn | | Render-prop form. `placeholder` may be a value or `() => value`. |
+| `data` / `placeholder` / children fn | | Render-prop form. `placeholder` may be a value or `() => value`. With `usePlaceholder`, pass only `loading`. |
 | `id` | | Cache key for remembered layouts. |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer" \| "pulse" \| "none"`. |
@@ -261,6 +282,7 @@ text becomes its own bar; content inside scroll containers is clipped.
 | `label` | | Screen-reader text (`role="status"`) while loading. |
 | `textHeight` | `0.72` | Text bar height as a fraction of font size. |
 | `surfaces` | `true` | Copy card backgrounds/borders. |
+| `persist` | `true` | Save `id` layouts to localStorage. |
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 
@@ -271,6 +293,7 @@ Theme with CSS variables on any ancestor: `--autoskeleton-color`,
 ## Checklist
 
 - [ ] Real component wrapped in `<Skeleton>`; no hand-written skeleton markup.
+- [ ] Data from `usePlaceholder` (or the render prop); no leftover `?.`/`?? ""` guards for loading.
 - [ ] Placeholder has every field the component reads (no runtime `undefined` access).
 - [ ] Placeholder images use `fake.image(w, h)` (or the img has CSS width/height).
 - [ ] Early `return <Spinner/>`/`return null` for loading removed.

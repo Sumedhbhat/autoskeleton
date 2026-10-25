@@ -1,6 +1,8 @@
 export { Skeleton, SkeletonProvider, useSkeleton } from "./Skeleton";
 export type { SkeletonProps, SkeletonConfig, SkeletonAnimation } from "./Skeleton";
 export { fake } from "./placeholder";
+export { usePlaceholder } from "./usePlaceholder";
+export type { PlaceholderResult, UsePlaceholderOptions } from "./usePlaceholder";
 export { clearSkeletonCache } from "./cache";
 export { measureBones } from "./measure";
 export type { Bone, BoneKind, BoneLayout, MeasureOptions } from "./measure";

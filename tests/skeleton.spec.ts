@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { fake } from "../src/placeholder";
 
 type R = { x: number; y: number; w: number; h: number; kind?: string; tag?: string };
 
@@ -67,7 +68,7 @@ async function realGeometry(page: Page, fixture: string): Promise<{ text: R[]; b
 const vOverlap = (a: R, b: R) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
 const hOverlap = (a: R, b: R) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
 
-const GEOMETRY_FIXTURES = ["user", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested"];
+const GEOMETRY_FIXTURES = ["user", "hook", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested"];
 
 for (const fixture of GEOMETRY_FIXTURES) {
   test(`geometry matches real content: ${fixture}`, async ({ page }) => {
@@ -122,6 +123,24 @@ test("content is hidden and inert while loading, then revealed", async ({ page }
   await expect(btn).toBeVisible();
   await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   expect(await page.locator("[inert]").count()).toBe(0);
+});
+
+test("usePlaceholder: nested placeholder fields while loading, real data after", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="hook"]');
+  const wrapper = root.locator("[data-autoskeleton]");
+  await expect(wrapper).toHaveAttribute("aria-busy", "true");
+  await expect(root.locator(".user-card h3")).toContainText(fake.name());
+  await expect(root.locator(".post strong")).toHaveText(fake.name(1));
+  expect((await bones(page, "hook")).length).toBeGreaterThan(5);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(wrapper).not.toHaveAttribute("aria-busy");
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator(".post strong")).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(errors).toEqual([]);
 });
 
 test("toggling back to loading re-measures current content", async ({ page }) => {

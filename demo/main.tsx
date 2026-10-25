@@ -1,12 +1,21 @@
 import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Skeleton, SkeletonProvider, fake, measureBones, useSkeleton, type SkeletonAnimation } from "autoskeleton";
+import {
+  Skeleton,
+  SkeletonProvider,
+  fake,
+  measureBones,
+  usePlaceholder,
+  useSkeleton,
+  type SkeletonAnimation,
+} from "autoskeleton";
 import {
   ArticleView,
   CenteredHero,
   Feed,
   Inbox,
   InvoiceRows,
+  PostItem,
   ProductGrid,
   SettingsForm,
   StatTiles,
@@ -129,6 +138,14 @@ const productsPlaceholder: Product[] = fake.list(6, (i) => ({
   image: fake.image(300, 300),
 }));
 
+// Nested data for the usePlaceholder() case: one query, several fields.
+interface Profile {
+  user: User;
+  pinned: Post;
+}
+const realProfile: Profile = { user: realUser, pinned: realPosts[0]! };
+const profilePlaceholder = (): Profile => ({ user: userPlaceholder, pinned: postsPlaceholder[0]! });
+
 const inboxPlaceholder = fake.list(12, (i) => ({ id: String(i), from: fake.name(i), subject: fake.sentence(6, i) }));
 const realInbox = fake.list(12, (i) => ({ id: String(i), from: `Sender ${i}`, subject: `Subject line number ${i} with some words` }));
 
@@ -180,6 +197,10 @@ function App() {
   const article = pick(realArticle, articlePlaceholder, loading);
   const products = pick(realProducts, productsPlaceholder, loading);
   const inbox = pick(realInbox, inboxPlaceholder, loading);
+  const { data: d, loading: profileLoading } = usePlaceholder(
+    pick(realProfile, profilePlaceholder(), loading),
+    profilePlaceholder,
+  );
 
   return (
     <SkeletonProvider animation={animation} fade={params.has("fade") ? Number(params.get("fade")) : undefined}>
@@ -203,6 +224,15 @@ function App() {
           <Section id="user" title="User card (render prop + placeholder)">
             <Skeleton data={user} placeholder={userPlaceholder}>
               {(u) => <UserCard user={u} />}
+            </Skeleton>
+          </Section>
+
+          <Section id="hook" title="Nested data (usePlaceholder, no arrow)">
+            <Skeleton loading={profileLoading}>
+              <div className="feed">
+                <UserCard user={d.user} />
+                <PostItem post={d.pinned} />
+              </div>
             </Skeleton>
           </Section>
 

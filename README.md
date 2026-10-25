@@ -12,7 +12,7 @@ and pills, and the card backgrounds and borders they sit on. There's no second
 changes.
 
 ```tsx
-import { Skeleton, fake } from "autoskeleton";
+import { Skeleton, fake, usePlaceholder } from "autoskeleton";
 
 const USER_PLACEHOLDER: User = {
   name: fake.name(),
@@ -22,17 +22,18 @@ const USER_PLACEHOLDER: User = {
 };
 
 function Profile() {
-  const { data } = useQuery(userQuery);
+  const query = useQuery(userQuery);
+  const { data: user, loading } = usePlaceholder(query.data, USER_PLACEHOLDER);
   return (
-    <Skeleton data={data} placeholder={USER_PLACEHOLDER}>
-      {(user) => <UserCard user={user} />}
+    <Skeleton loading={loading}>
+      <UserCard user={user} />
     </Skeleton>
   );
 }
 ```
 
-`loading` is inferred from `data == null`; the render function always gets a
-`User`, so there's no `user?.name ?? ""` dance inside `UserCard`.
+`loading` is `data == null`, and `user` is always a `User` (the placeholder
+until data arrives), so there's no `user?.name ?? ""` dance inside `UserCard`.
 
 ## Install
 
@@ -47,11 +48,39 @@ prefer a static file, import `autoskeleton/styles.css` and set
 
 ## Usage
 
+### `usePlaceholder`
+
+```tsx
+const { data: d, loading } = usePlaceholder(query.data, PAGE_PLACEHOLDER);
+
+<Skeleton loading={loading}>
+  <UserCard user={d.user} />
+  <Feed posts={d.posts} />
+</Skeleton>
+```
+
+`d` is the real data, or the placeholder while loading, typed as `T` either
+way, so nested fields work directly in JSX. `loading` defaults to
+`data == null`; pass `{ loading: isLoading }` to override it. The placeholder
+can be a value or `() => value` (called once, the first time it's needed).
+
+### Render prop
+
+The same thing without the hook, when you'd rather keep it inline:
+
+```tsx
+<Skeleton data={data} placeholder={USER_PLACEHOLDER}>
+  {(user) => <UserCard user={user} />}
+</Skeleton>
+```
+
 ### Explicit `loading`
+
+For anything you can already render while loading:
 
 ```tsx
 <Skeleton loading={isLoading}>
-  <Feed posts={posts ?? POSTS_PLACEHOLDER} />
+  <SettingsForm plan={plan} />
 </Skeleton>
 ```
 
@@ -77,13 +106,13 @@ closer the lengths are to real data, the less the page moves when data arrives.
 ### Tables, lists and grids
 
 The wrapper is `display: contents`, so it never changes flex or grid layout.
-Inside a table, render it as the `tbody`:
+Inside a table, render it as the `tbody` (`rows` from `usePlaceholder`):
 
 ```tsx
 <table>
   <thead>…</thead>
-  <Skeleton as="tbody" data={rows} placeholder={ROWS_PLACEHOLDER}>
-    {(rs) => rs.map((r) => <Row key={r.id} row={r} />)}
+  <Skeleton as="tbody" loading={loading}>
+    {rows.map((r) => <Row key={r.id} row={r} />)}
   </Skeleton>
 </table>
 ```
@@ -155,7 +184,7 @@ focused.
 | Prop | Default | |
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
-| `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. |
+| `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. Or use `usePlaceholder` and pass only `loading`. |
 | `id` | | Cache key for remembered layouts. |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer"`, `"pulse"` or `"none"`. Reduced motion is respected. |
@@ -228,7 +257,7 @@ relying on the comparison.
 | Project | Approach | Taken from it | Different here |
 | --- | --- | --- | --- |
 | [boneyard-js](https://github.com/0xgf/boneyard) | Captures layouts at build time: a CLI/Vite plugin opens your app in a headless browser at set breakpoints (375/768/1280 by default) and writes `.bones.json` files you import as a registry. | `<Skeleton name loading>`-style wrapping; remembering layouts so a skeleton can be drawn with no data (our `id` cache); fade-out transition. | No build step or headless browser. Layout is measured live at the real width, font and data shape, and remeasured on resize; the cache only fills the gap when nothing can render. |
-| [shimmer-from-structure](https://github.com/darula-hpp/shimmer-from-structure) | Runtime: measures leaf elements with `getBoundingClientRect()` in `useLayoutEffect` when `loading` turns true, keeps container backgrounds by making text transparent, and spreads `templateProps` onto the first child for mock data. | Measuring the real component at runtime in a layout effect; keeping card backgrounds; copying border radius. | Text is measured per *line* with `Range.getClientRects()`, not per element box. Remeasures on resize, mutations, image and font loads. Typed placeholder data through a render prop instead of props spread on the first child. Viewport culling for long lists. Content is `inert`/`aria-busy` while hidden. |
+| [shimmer-from-structure](https://github.com/darula-hpp/shimmer-from-structure) | Runtime: measures leaf elements with `getBoundingClientRect()` in `useLayoutEffect` when `loading` turns true, keeps container backgrounds by making text transparent, and spreads `templateProps` onto the first child for mock data. | Measuring the real component at runtime in a layout effect; keeping card backgrounds; copying border radius. | Text is measured per *line* with `Range.getClientRects()`, not per element box. Remeasures on resize, mutations, image and font loads. Typed placeholder data through a hook or render prop instead of props spread on the first child. Viewport culling for long lists. Content is `inert`/`aria-busy` while hidden. |
 | [react-skeletonify](https://dev.to/sinan0333/building-dynamic-skeleton-loaders-in-react-the-easy-way-1fae) | Runtime `SkeletonWrapper loading` that turns the wrapped tree into skeletons, with a global `SkeletonProvider` config. | The provider for global defaults. | Its docs are thin, so this row is the least verified. Compare directly. |
 | [react-stencilize](https://dev.to/t4y3/withstencil-stop-writing-skeleton-components-twice-2dfk) | `withStencil(Component)` HOC that renders the component with a deep "safe" Proxy as props and blanks the output, usually as a Suspense fallback. | The goal (never write a component twice) and the "same component as the Suspense fallback" pattern. | A Proxy for automatic placeholder data was tried and dropped: React can't render a Proxy as a text child, so text lengths (the thing that makes skeletons look right) are lost. `fake.*` keeps lengths realistic and data typed. |
 | [instaskeleton](https://www.npmjs.com/package/instaskeleton) | No DOM scanning: infers shapes from the JSX element tree, with an optional manual schema and an LRU cache. | | Measures the DOM instead, so CSS (wrapping, grid, aspect ratios, clamping) is reflected exactly. |
