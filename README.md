@@ -123,7 +123,8 @@ rendered `count` times (default 3), as identical rows. The same function then
 renders each real item. Return a keyed element, as in `.map()`. Placeholder
 rows are keyed by index for you, so their shared `id` doesn't collide.
 `loading` overrides the inferred flag. `placeholder` can be a value or
-`() => value`, and every other `<Skeleton>` prop works.
+`() => value`, and every other `<Skeleton>` prop works. For a list under
+`SkeletonSuspense`, see Suspense below.
 
 The wrapper is `display: contents`, so it never changes flex or grid layout:
 put the list straight inside the flex or grid container. Inside a table,
@@ -351,23 +352,26 @@ Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain
 </Suspense>
 ```
 
-For a list, make the fallback a loading `SkeletonList`:
+For a list, the fallback is one item repeated with `fake.list`, and the
+child maps what `useSuspenseData` returns:
 
 ```tsx
-<SkeletonSuspense
-  fallback={
-    <SkeletonList loading placeholder={STORY_PLACEHOLDER} count={5}>
-      {(story) => <StoryCard key={story.id} story={story} />}
-    </SkeletonList>
-  }
->
+const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+
+<SkeletonSuspense fallback={STORIES_PLACEHOLDER}>
   <Stories promise={storiesPromise} />
 </SkeletonSuspense>
+
+function Stories({ promise }: { promise: Promise<Story[]> }) {
+  const stories = useSuspenseData(promise);
+  return stories.map((story) => <StoryCard key={story.id} story={story} />);
+}
 ```
 
-It doesn't draw bones of its own inside the boundary. `SkeletonSuspense`
-measures the rows and fades them out over the content. Keep the boundary's
-parent the list's flex or grid container, as for any `SkeletonList`.
+Give each copy its own `id` (or whatever the key is), or the identical rows
+collide on their keys. Skip `SkeletonList` here: inside the fallback the items
+are already the placeholder rows. Keep the boundary's parent the list's flex
+or grid container: the boundary's wrapper is `display: contents` too.
 
 How this differs from `loading`:
 

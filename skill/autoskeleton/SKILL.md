@@ -88,7 +88,7 @@ const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: f
 Return a keyed element as in `.map()`. Placeholder rows are keyed by index
 for you, so the shared placeholder `id` never collides. `placeholder` may be a
 value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…).
-For Suspense, use it as the `SkeletonSuspense` fallback (below).
+Not for Suspense: there, the fallback is `fake.list` (below).
 
 ## Writing placeholders
 
@@ -342,20 +342,20 @@ export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspense
   return useSuspenseData(inSkeleton ? never : queryPromise(client, options), placeholder);
 }
 ```
-
-Lists: the fallback is a loading `SkeletonList`. Inside the boundary it draws
-no bones of its own; `SkeletonSuspense` measures the rows and fades them.
+Lists: the fallback is one item repeated with `fake.list`, each copy with its
+own `id` so the rows' keys don't collide. The child maps the result; no
+`SkeletonList` here.
 
 ```tsx
-<SkeletonSuspense
-  fallback={
-    <SkeletonList loading placeholder={STORY_PLACEHOLDER} count={5}>
-      {(s) => <StoryCard key={s.id} story={s} />}
-    </SkeletonList>
-  }
->
+const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+
+<SkeletonSuspense fallback={STORIES_PLACEHOLDER}>
   <Stories promise={storiesPromise} />
 </SkeletonSuspense>
+
+function Stories({ promise }: { promise: Promise<Story[]> }) {
+  return useSuspenseData(promise).map((s) => <StoryCard key={s.id} story={s} />);
+}
 ```
 
 Limits:
