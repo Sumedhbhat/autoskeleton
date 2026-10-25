@@ -222,16 +222,22 @@ assert.match(
 const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
 assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));
 assert.doesNotMatch(tableList, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
-// promise: placeholder rows as the Suspense fallback, then the streamed items.
-assert.equal(renderToString(h(SkeletonList, { as: "ul", promise: pending, placeholder: rowPh, count: 2 }, li)).split(phLi).length - 1, 2);
+// As a SkeletonSuspense fallback: placeholder rows in the shell, one layer
+// (the boundary's; the nested list doesn't draw its own), then the streamed rows.
+const listFallback = h(SkeletonList, { as: "ul", loading: true, placeholder: rowPh, count: 2 }, li);
+const suspenseList = (promise) => h(SkeletonSuspense, { fallback: listFallback }, h(Posts, { promise }));
+const pendingSuspenseList = renderToString(suspenseList(new Promise(() => {})));
+assert.match(
+  pendingSuspenseList,
+  new RegExp(`<div data-autoskeleton="" aria-busy="true" data-pending=""[^>]*><ul data-autoskeleton="" aria-busy="true" style="display:contents;visibility:hidden">(${phLi}){2}</ul><span data-autoskeleton-layer`),
+);
+assert.equal(pendingSuspenseList.match(/<span data-autoskeleton-layer/g)?.length, 1);
 let resolveRows;
 const rowsLater = new Promise((r) => (resolveRows = r));
-const streamedList = await stream(
-  h("main", null, h(SkeletonList, { as: "ul", promise: rowsLater, placeholder: rowPh, count: 2 }, li)),
-  () => resolveRows([{ id: "x", title: "Streamed row" }]),
-);
+const streamedList = await stream(h("main", null, suspenseList(rowsLater)), () => resolveRows([{ title: "Streamed row" }]));
 assert.match(streamedList.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true"[^>]*>(${phLi}){2}`));
-assert.match(streamedList.all, /<ul data-autoskeleton="" style="display:contents"><li>Streamed row<\/li><\/ul>/);
+assert.doesNotMatch(streamedList.shell, /Streamed row/);
+assert.match(streamedList.all, /<ul><li>Streamed row<\/li><\/ul>/);
 assert.deepEqual(streamedList.errors, []);
 
 console.log("ssr ok");

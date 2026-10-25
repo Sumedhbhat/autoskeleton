@@ -307,8 +307,8 @@ function App() {
             </div>
           </Section>
 
-          <Section id="list-promise" title="SkeletonList: promise">
-            <ListPromiseDemo />
+          <Section id="list-suspense" title="SkeletonList as the SkeletonSuspense fallback">
+            <ListSuspenseDemo />
           </Section>
 
           <Section id="list-grid" title="SkeletonList: grid (count=4)" wide>
@@ -605,17 +605,6 @@ function UntypedUser({ promise }: { promise: PromiseLike<User> }) {
   );
 }
 
-function ListPromiseDemo() {
-  const { promise } = useDemoPromise(listPosts);
-  return (
-    <div className="feed">
-      <SkeletonList promise={promise} placeholder={postPlaceholder} count={3}>
-        {(p) => <PostItem key={p.id} post={p} />}
-      </SkeletonList>
-    </div>
-  );
-}
-
 // The typed form: no `fallback`; the reader passes its own placeholder.
 function SkeletonSuspenseDemo() {
   const { promise } = useDemoPromise(demoPosts);
@@ -702,6 +691,27 @@ function read<T>(promise: Promise<T>): T {
   if (s.state === "done") return s.value;
   if (s.state === "failed") throw s.error;
   throw promise;
+}
+// A list: the fallback is a loading SkeletonList (one placeholder item, `count`
+// rows). It doesn't draw bones itself; the boundary measures and fades them.
+function SuspendingPostList({ promise }: { promise: Promise<Post[]> }) {
+  return read(promise).map((p) => <PostItem key={p.id} post={p} />);
+}
+function ListSuspenseDemo() {
+  const { promise } = useDemoPromise(listPosts);
+  return (
+    <div className="feed">
+      <SkeletonSuspense
+        fallback={
+          <SkeletonList loading placeholder={postPlaceholder} count={3}>
+            {(p) => <PostItem key={p.id} post={p} />}
+          </SkeletonList>
+        }
+      >
+        <SuspendingPostList promise={promise} />
+      </SkeletonSuspense>
+    </div>
+  );
 }
 function SelfLoadingUser() {
   useLoading();

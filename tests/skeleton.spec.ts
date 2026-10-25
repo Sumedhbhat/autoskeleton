@@ -89,7 +89,7 @@ const GEOMETRY_FIXTURES = [
   "suspense-manual",
   "suspense-attrs",
   "list",
-  "list-promise",
+  "list-suspense",
   "list-grid",
   "list-table",
   "list-ul",
@@ -872,20 +872,57 @@ test("SkeletonList: table rows as tbody, layer portaled out of the table", async
   expect(errors).toEqual([]);
 });
 
-test("SkeletonList: promise shows placeholder rows while pending, resolved rows after", async ({ page }) => {
+test("SkeletonList as a SkeletonSuspense fallback: one layer, rows fade out over the content", async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto("/");
-  const root = page.locator('[data-fixture="list-promise"]');
-  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  const root = page.locator('[data-fixture="list-suspense"]');
+  // The boundary's wrapper and the list's, both busy; only the boundary draws bones.
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(2);
   await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
-  expectIdenticalRows(await bonesPerItem(page, "list-promise", ".post"), 3);
-  await page.evaluate(() => window.__setLoading(false));
+  expectIdenticalRows(await bonesPerItem(page, "list-suspense", ".post"), 3);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
+  // Relative to the section, captured in the same frame: sections above change height as they load.
+  const relative = (bs: R[], top: number) => bs.map((b) => ({ ...b, y: b.y - top }));
+  const sectionTop = () => root.evaluate((el) => el.getBoundingClientRect().top + scrollY);
+  const before = relative(await bones(page, "list-suspense"), await sectionTop());
+
+  // On resolve the rows' bones fade out over the content, where they were drawn.
+  const fading = await page.evaluate(
+    () =>
+      new Promise<R[] | null>((resolve) => {
+        const root = document.querySelector('[data-fixture="list-suspense"]')!;
+        const mo = new MutationObserver(() => {
+          const layer = root.querySelector("[data-autoskeleton-layer][data-exiting]");
+          if (!layer) return;
+          mo.disconnect();
+          const top = root.getBoundingClientRect().top;
+          resolve(
+            Array.from(layer.querySelectorAll("[data-bone]")).map((b) => {
+              const r = b.getBoundingClientRect();
+              return { x: r.left, y: r.top - top, w: r.width, h: r.height };
+            }),
+          );
+        });
+        mo.observe(document.body, { subtree: true, attributes: true, childList: true });
+        window.__setLoading(false);
+        setTimeout(() => resolve(null), 2000);
+      }),
+  );
+  expect(fading, "fallback bones faded out over the content").not.toBeNull();
+  expect(fading!.length).toBe(before.length);
+  for (const [i, b] of fading!.entries()) {
+    expect(Math.abs(b.x - before[i]!.x)).toBeLessThan(1);
+    expect(Math.abs(b.y - before[i]!.y)).toBeLessThan(1);
+  }
   await expect(root.locator(".post strong")).toHaveText(["Grace Hopper", "Alan Turing", "Katherine Johnson"]);
+  await expect(root.locator("[data-autoskeleton]")).toHaveCount(1);
   await expect(root.locator("[data-autoskeleton]")).not.toHaveAttribute("aria-busy");
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   // A new promise suspends again: placeholder rows come back.
   await page.evaluate(() => window.__setLoading(true));
-  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
-  expect((await bones(page, "list-promise")).length).toBeGreaterThan(5);
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(2);
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"] .post strong')).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
+  expect((await bones(page, "list-suspense")).length).toBeGreaterThan(5);
   expect(errors).toEqual([]);
 });
