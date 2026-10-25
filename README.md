@@ -62,7 +62,8 @@ const { data: d, loading } = usePlaceholder(query.data, PAGE_PLACEHOLDER);
 `d` is the real data, or the placeholder while loading, typed as `T` either
 way, so nested fields work directly in JSX. `loading` defaults to
 `data == null`; pass `{ loading: isLoading }` to override it. The placeholder
-can be a value or `() => value` (called once, the first time it's needed).
+can be a value or `() => value` (a pure factory, called when first
+needed and cached with the component's state).
 
 ### Render prop
 

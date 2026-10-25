@@ -16,8 +16,9 @@ export interface PlaceholderResult<T> {
  * `T`. Pair it with `<Skeleton loading={loading}>` to use the data directly in
  * JSX, nested fields included, without a children function.
  *
- * A function `placeholder` is called the first time it's needed and the
- * result reused for the life of the component.
+ * A function `placeholder` must be pure: it's called when first needed and
+ * the result cached in the component's state. React may call it again if it
+ * discards a render before that state is kept.
  * If `loading` is forced to false while `data` is still null, you get the
  * placeholder (visibly), since `data` is never null.
  */

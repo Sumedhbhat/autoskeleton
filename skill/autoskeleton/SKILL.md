@@ -41,9 +41,12 @@ const { data: d, loading } = usePlaceholder(query.data, PROFILE_PLACEHOLDER);
 </Skeleton>
 ```
 
-When the loading flag isn't "data is null" (several queries, mutations), pass
-it: `usePlaceholder(data, PLACEHOLDER, { loading: isLoading || isFetchingNextPage })`.
-`placeholder` may be a value or `() => value` (called once, when first needed).
+When the loading flag isn't "data is null" (e.g. data depends on several
+queries), pass it: `usePlaceholder(data, PLACEHOLDER, { loading: a.isLoading || b.isLoading })`.
+Don't pass `isFetchingNextPage`: it would swap loaded pages for the placeholder
+(see load more below).
+`placeholder` may be a value or `() => value` (a pure factory, called when
+first needed and cached with the component's state).
 Call the hook in the component that owns the query, above the `<Skeleton>`.
 
 ## Pattern B: render prop
