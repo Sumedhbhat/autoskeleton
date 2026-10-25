@@ -20,7 +20,6 @@ import {
 import { createPortal } from "react-dom";
 import { loadLayout, normalize, saveLayout, type CachedLayout } from "./cache";
 import { FALLBACK_ATTR, LAYER_ATTR, layoutKey, measureBones, type Bone, type BoneLayout, type Rect } from "./measure";
-import { readPromise } from "./promise";
 import { autoskeletonCss, injectStyles } from "./styles";
 
 // React 19 can hoist and dedupe <style precedence> (also during SSR).
@@ -95,8 +94,7 @@ const OWN_PROPS = new Set([
   "injectStyles",
   "nonce",
   "inert",
-  // Internal to SkeletonSuspense / the promise prop.
-  "promise",
+  // Internal to SkeletonSuspense.
   "handoff",
 ]);
 
@@ -133,7 +131,6 @@ interface NodeProps extends BaseProps {
   children?: ReactNode;
   data?: never;
   placeholder?: never;
-  promise?: never;
 }
 
 interface RenderProps<T> extends BaseProps {
@@ -142,25 +139,30 @@ interface RenderProps<T> extends BaseProps {
   /** Stand-in data with the same shape, used to lay out the skeleton. */
   placeholder?: T | (() => T);
   children: (data: T) => ReactNode;
-  promise?: never;
 }
 
-interface PromiseProps<T> extends Omit<BaseProps, "loading"> {
+export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & SkeletonHTMLAttributes;
+
+export interface SkeletonSuspenseProps extends SkeletonConfig {
   /**
-   * The data, as a promise. Wraps the children in its own <Suspense>: the
-   * fallback is `children(placeholder)` as a skeleton, then `children(value)`
-   * once it resolves. Rejections go to the nearest error boundary. While it's
-   * null/undefined (not started yet) the skeleton shows.
+   * What `<Suspense>` would show while the children suspend: the
+   * presentational component with placeholder data. It's rendered invisibly,
+   * measured and painted as a skeleton.
    */
-  promise: PromiseLike<T> | null | undefined;
-  /** Stand-in data with the same shape, used to lay out the skeleton. */
-  placeholder?: T | (() => T);
-  children: (data: T) => ReactNode;
-  data?: never;
-  loading?: never;
+  fallback?: ReactNode;
+  /** The content. It suspends however it likes: `use()`, `useSuspenseQuery`, `lazy`. */
+  children?: ReactNode;
+  /** Passed to `<Suspense name>` (React 19 DevTools). */
+  name?: string;
+  /** Cache key, as on `<Skeleton>`: the content's layout is remembered for fallbacks that can't be measured. */
+  id?: string;
+  /** Screen-reader text announced while suspended (role="status"). Off by default. */
+  label?: string;
+  /** Element used for both wrappers. They are `display: contents`. Default: "div". */
+  as?: ElementType;
+  className?: string;
+  style?: CSSProperties;
 }
-
-export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T> | PromiseProps<T>) & SkeletonHTMLAttributes;
 
 interface HandoffEntry {
   layout: BoneLayout;
@@ -278,47 +280,32 @@ function shift(l: BoneLayout, dx: number, dy: number): BoneLayout {
  * (and inert), measured, and replaced on screen by a skeleton with the same
  * shape: one bar per line of text, blocks for images/buttons/inputs, and the
  * card surfaces they sit on.
- *
- * With `promise`, it also sets up the Suspense boundary: the skeleton of
- * `children(placeholder)` is the fallback, `children(value)` the content.
  */
 export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
-  // Separate component types so each form keeps its own stable hook order.
-  if ("promise" in props && typeof props.children === "function" && !("data" in props)) {
-    return <PromiseSkeleton<T> {...(props as PromiseProps<T>)} />;
-  }
-  return <SkeletonView<T> {...(props as ViewProps<T>)} />;
+  return <SkeletonView<T> {...props} />;
 }
 
-function PromiseSkeleton<T>(props: PromiseProps<T>): ReactElement {
-  const { promise, placeholder, children, ...rest } = props;
+/**
+ * A drop-in for `<Suspense>`: same props, but the fallback is drawn as a
+ * skeleton of itself. When the content shows, the fallback's bones fade out
+ * over it.
+ */
+export function SkeletonSuspense({ fallback, children, name, ...view }: SkeletonSuspenseProps): ReactElement {
   // Outlives the fallback, so the content can fade out the fallback's bones.
   const [handoff] = useState(createHandoff);
   const skeleton = (
-    <SkeletonView<T> {...rest} data={undefined} placeholder={placeholder} handoff={handoff}>
-      {children}
+    <SkeletonView {...view} loading handoff={handoff}>
+      {fallback}
     </SkeletonView>
   );
+  // React 18's <Suspense> ignores `name`.
   return (
-    <Suspense fallback={skeleton}>
-      {promise == null ? (
-        skeleton
-      ) : (
-        <Resolved
-          promise={promise}
-          render={(value) => (
-            <SkeletonView {...rest} fallback={undefined} handoff={handoff}>
-              {children(value)}
-            </SkeletonView>
-          )}
-        />
-      )}
+    <Suspense fallback={skeleton} name={name}>
+      <SkeletonView {...view} loading={false} handoff={handoff}>
+        {children}
+      </SkeletonView>
     </Suspense>
   );
-}
-
-function Resolved<T>({ promise, render }: { promise: PromiseLike<T>; render: (value: T) => ReactNode }): ReactElement {
-  return <>{render(readPromise(promise))}</>;
 }
 
 function SkeletonView<T>(props: ViewProps<T>): ReactElement {
