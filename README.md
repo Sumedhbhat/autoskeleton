@@ -157,6 +157,16 @@ attributes go to the wrapper.
 </Skeleton>
 ```
 
+`<SkeletonList>` forwards them the same way, and `label` gives it one
+`role="status"` while loading (with `as="tbody"`, in the bone layer outside the
+table). `id` stays the cache key, never the DOM id:
+
+```tsx
+<SkeletonList as="ul" aria-label="Stories" label="Loading stories" items={stories} placeholder={STORY_PLACEHOLDER} count={5}>
+  {(s) => <Story key={s.id} story={s} />}
+</SkeletonList>
+```
+
 For a `<ul>`, use `as="ul"` and return `<li>`s. Its own box is
 `display: contents` too, so put margins, padding and grid styles on a parent.
 
@@ -261,6 +271,8 @@ rows in the skeleton, then the real ones. No `fallback` needed.
 
 ```tsx
 const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+// Numeric ids (`id: number`, e.g. Hacker News items):
+const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i, "number") }));
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />
@@ -273,7 +285,10 @@ function Stories({ promise }: { promise: Promise<Story[]> }) {
 ```
 
 - Each row needs its own `id` (or whatever the key is): the child keys rows
-  itself, so identical copies would collide on their keys.
+  itself, so identical copies would collide on their keys. Match the id's
+  type: `fake.id(i)` is a string, `fake.id(i, "number")` a negative number
+  that never matches a real record. A string id where `Story.id` is a number
+  is a compile error.
 - `fake.list` returns a plain `Story[]`, so the item shape is checked: a
   missing or mistyped field is a compile error.
 - Skip `SkeletonList` here: inside the skeleton the data already is the
@@ -474,9 +489,10 @@ If you need one, put it on an element inside, or wrap the skeleton.
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder?)` are covered
 under Suspense above.
 
-`<SkeletonList>` takes the same props as `<Skeleton>`, with `items` (instead
-of `data`), `placeholder` (one item, or `() => item`) and `count` (default
-`3`). Its children function gets `(item, index)`. See Tables, lists and grids.
+`<SkeletonList>` takes the same props as `<Skeleton>` (HTML attributes and
+`label` included), with `items` (instead of `data`), `placeholder` (one item,
+or `() => item`) and `count` (default `3`). Its children function gets
+`(item, index)`. See Tables, lists and grids.
 
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 

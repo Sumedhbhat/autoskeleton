@@ -14,6 +14,14 @@ const COMMENT: Comment = { id: fake.id(), body: fake.sentence(8) };
 // A list placeholder declared once: one item, repeated with its own id per row.
 const LIST = fake.list(3, (i) => ({ ...COMMENT, id: fake.id(i) }));
 const WRONG_LIST = fake.list(3, (i) => ({ id: fake.id(i) }));
+// Numeric ids (Hacker News-style items): fake.id(i, "number").
+interface Story {
+  id: number;
+  title: string;
+}
+declare const stories: Promise<Story[]>;
+const STORY: Story = { id: fake.id(0, "number"), title: fake.sentence(8) };
+const STORIES = fake.list(3, (i) => ({ ...STORY, id: fake.id(i, "number") }));
 
 type Equal<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
 const expect = <T extends true>(): T => true as T;
@@ -42,7 +50,13 @@ export function Typed() {
   expect<Equal<typeof h, Comment[]>>();
   const k = useSuspenseData(promise, () => fake.list(2, (i) => ({ ...COMMENT, id: fake.id(i) })));
   expect<Equal<typeof k, Comment[]>>();
-  return [a, b, c, d, e, f, g, h, k];
+  // Numeric ids: fake.id(i, "number") keeps `id: number`.
+  expect<Equal<typeof STORIES, { id: number; title: string }[]>>();
+  const m = useSuspenseData(stories, STORIES);
+  expect<Equal<typeof m, Story[]>>();
+  const n = useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i, "number") })));
+  expect<Equal<typeof n, Story[]>>();
+  return [a, b, c, d, e, f, g, h, k, m, n];
 }
 
 export function Rejected() {
@@ -66,6 +80,8 @@ export function Rejected() {
   useSuspenseData(promise, fake.list(2, (i) => ({ id: fake.id(i) })));
   // @ts-expect-error a fake.list item with a wrong field type
   useSuspenseData(promise, fake.list(2, (i) => ({ ...COMMENT, id: i })));
+  // @ts-expect-error a string fake.id where the item's id is a number
+  useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i) })));
   // @ts-expect-error one fake item where the promise gives a list
   useSuspenseData(promise, fake.list(1, () => COMMENT)[0]!);
   // @ts-expect-error not a promise

@@ -77,8 +77,8 @@ placeholder item. Then pick by where the list comes from:
 
 - No Suspense (`useQuery(...).data`, a store, props): `SkeletonList`, below.
 - Suspense (a promise read in the child): `useSuspenseData(promise,
-  fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`. See "Lists under
-  Suspense".
+  fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`, or
+  `fake.id(i, "number")` when `id` is a number. See "Lists under Suspense".
 
 `SkeletonList` renders the item `count` times (default 3, identical rows),
 then the same function renders each real item. `loading` is `items == null`;
@@ -96,6 +96,15 @@ const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: f
 Return a keyed element as in `.map()`. Placeholder rows are keyed by index
 for you, so the shared placeholder `id` never collides. `placeholder` may be a
 value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…).
+HTML attributes go to the wrapper, and `label` adds one `role="status"` while
+loading (with `as="tbody"`, in the bone layer outside the table). `id` is the
+cache key, never the DOM id:
+
+```tsx
+<SkeletonList as="ul" aria-label="Stories" label="Loading stories" items={stories} placeholder={STORY_PLACEHOLDER} count={5}>
+  {(s) => <StoryItem key={s.id} story={s} />}
+</SkeletonList>
+```
 
 ## Writing placeholders
 
@@ -354,6 +363,17 @@ export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspense
 }
 ```
 
+Limits:
+- Suspense remounts: the content mounts fresh when data arrives (state and
+  effects start over).
+- Content that suspends again is hidden and the skeleton shows, except in a
+  transition (`startTransition`, router navigations), where React keeps the
+  old content with no skeleton. For a skeleton over stale results, use
+  `loading={isFetching}` instead.
+- The skeleton renders on the server (`renderToString` and the streaming
+  shell), but React doesn't hydrate a fallback waiting for streamed content,
+  so it stays the CSS-only approximation until the content replaces it.
+
 ### Lists under Suspense
 
 Repeat one item with `fake.list`, each copy with its own `id`, and pass it to
@@ -361,6 +381,8 @@ the hook. The child maps the result. No `fallback`, no `SkeletonList`.
 
 ```tsx
 const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+// `id: number` (e.g. Hacker News items):
+const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i, "number") }));
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />
@@ -374,20 +396,10 @@ function Stories({ promise }: { promise: Promise<Story[]> }) {
 - `fake.list` returns a plain `Story[]`, checked against the promise: a
   missing or mistyped item field is a type error.
 - Each copy needs its own `id`: the child keys the rows, so identical copies
-  collide on their keys.
+  collide on their keys. Match the id's type: `fake.id(i)` is a string,
+  `fake.id(i, "number")` a negative number; the wrong one is a type error.
 - Keep the boundary's parent the flex/grid container (its wrapper is
   `display: contents`).
-
-Limits:
-- Suspense remounts: the content mounts fresh when data arrives (state and
-  effects start over).
-- Content that suspends again is hidden and the skeleton shows, except in a
-  transition (`startTransition`, router navigations), where React keeps the
-  old content with no skeleton. For a skeleton over stale results, use
-  `loading={isFetching}` instead.
-- The skeleton renders on the server (`renderToString` and the streaming
-  shell), but React doesn't hydrate a fallback waiting for streamed content,
-  so it stays the CSS-only approximation until the content replaces it.
 
 ## Components that fetch their own data
 
@@ -490,7 +502,7 @@ Static `opacity: 0` content gets no bones.
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder)`: see
 Suspense above.
 
-`<SkeletonList>`: the same props as `<Skeleton>`, with `items` (instead of `data`),
+`<SkeletonList>`: the same props as `<Skeleton>` (HTML attributes and `label` included), with `items` (instead of `data`),
 `placeholder` (one item, or `() => item`) and `count` (default 3); children get `(item, index)`.
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
@@ -514,7 +526,7 @@ theme for this.
 - [ ] Placeholder images use `fake.image(w, h)` (or the img has CSS width/height).
 - [ ] Early `return <Spinner/>`/`return null` for loading removed.
 - [ ] Old `*Skeleton` components deleted if unused.
-- [ ] Lists of same-shaped items: `SkeletonList` (one placeholder item + `count`); under Suspense, `useSuspenseData(promise, fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`.
+- [ ] Lists of same-shaped items: `SkeletonList` (one placeholder item + `count`); under Suspense, `useSuspenseData(promise, fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))` (`fake.id(i, "number")` for numeric ids).
 - [ ] Tables use `as="tbody"`.
 - [ ] Every `useEffect` in wrapped components (and their children) checked: outside-world effects return early when `useSkeleton()` is true.
 - [ ] Placeholder covers nested objects, nullable fields and anything parsed/formatted (`new Date(...)`, `.toFixed()`, `.map()` on arrays).

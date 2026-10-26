@@ -57,7 +57,8 @@ const placeholderLists = new WeakSet<readonly unknown[]>();
  * - Not for Suspense. There, pass
  *   `fake.list(count, (i) => ({ ...item, id: fake.id(i) }))` to
  *   `useSuspenseData(promise, placeholder)` and map its result; each copy
- *   needs its own `id` because you key those rows.
+ *   needs its own `id` because you key those rows (`fake.id(i, "number")`
+ *   for numeric ids).
  *
  * @example
  * ```tsx
