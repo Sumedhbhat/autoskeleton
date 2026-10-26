@@ -393,3 +393,28 @@ test("HTML attributes are forwarded to the wrapper; id stays the cache key", asy
   await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-attrs") !== null)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+/** Names of `status` nodes in Chrome's own accessibility tree (what screen readers get). */
+async function axStatusNames(page: Page): Promise<string[]> {
+  const cdp = await page.context().newCDPSession(page);
+  const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as {
+    nodes: { ignored: boolean; role?: { value: string }; name?: { value: string } }[];
+  };
+  await cdp.detach();
+  return nodes.filter((n) => !n.ignored && n.role?.value === "status").map((n) => n.name?.value ?? "");
+}
+
+test("label: status is findable by accessible name and exposed outside the inert content", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1");
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveCount(1);
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveText("Loading recent mail");
+  // Inside table internals the status travels with the portaled layer.
+  await expect(page.getByRole("status", { name: "Loading invoices" })).toHaveCount(1);
+  await expect.poll(() => axStatusNames(page)).toEqual(expect.arrayContaining(["Loading recent mail", "Loading invoices"]));
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading invoices" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

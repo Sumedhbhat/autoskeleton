@@ -202,7 +202,7 @@ focused.
 | `animation` | `"shimmer"` | `"shimmer"`, `"pulse"` or `"none"`. Reduced motion is respected. |
 | `as` | `"div"` | Wrapper element (always `display: contents`). |
 | `fade` | `200` | Milliseconds to fade the skeleton out when loading ends. |
-| `label` | | Screen-reader text (`role="status"`) while loading. |
+| `label` | | Screen-reader text while loading: a `role="status"` element named by it (`getByRole("status", { name: label })`), rendered next to the wrapper since the content is `inert`. |
 | `textHeight` | `0.72` | Text bar height as a fraction of the font size. |
 | `surfaces` | `true` | Copy card backgrounds, borders and shadows. |
 | `persist` | `true` | Save `id` layouts to localStorage. |

@@ -292,7 +292,7 @@ they end. Static `opacity: 0` content gets no bones.
 | `animation` | `"shimmer"` | `"shimmer" \| "pulse" \| "none"`. |
 | `as` | `"div"` | Wrapper element (always `display: contents`). |
 | `fade` | `200` | ms to fade the skeleton out when loading ends. |
-| `label` | | Screen-reader text (`role="status"`) while loading. |
+| `label` | | Screen-reader text while loading: `role="status"` with that accessible name (`getByRole("status", { name: label })`). Rendered as a sibling of the wrapper. |
 | `textHeight` | `0.72` | Text bar height as a fraction of font size. |
 | `surfaces` | `true` | Copy card backgrounds/borders. |
 | `persist` | `true` | Save `id` layouts to localStorage. |

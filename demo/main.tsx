@@ -253,7 +253,7 @@ function App() {
                   <th>Date</th>
                 </tr>
               </thead>
-              <Skeleton as="tbody" loading={loading}>
+              <Skeleton as="tbody" loading={loading} label="Loading invoices">
                 <InvoiceRows rows={invoices ?? invoicesPlaceholder} />
               </Skeleton>
             </table>
@@ -318,6 +318,7 @@ function App() {
               aria-label="Recent mail"
               data-section="recent"
               title="Recent mail"
+              label="Loading recent mail"
               loading={loading}
             >
               {(inbox ?? inboxPlaceholder).slice(0, 3).map((m) => (

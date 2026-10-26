@@ -429,6 +429,15 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
   const layerStyle = { "--sk-w": `${Math.max(layout.width, 1)}px` } as CSSProperties;
 
   const tableAs = typeof props.as === "string" && TABLE_PARTS.has(props.as.toUpperCase());
+  // The content is inert (hidden from assistive tech), so the status lives
+  // outside it: next to the wrapper, or in the portaled layer inside tables.
+  // aria-label gives it an accessible name; the text is what gets announced.
+  const status =
+    config.label && showBones ? (
+      <span data-autoskeleton-sr="" role="status" aria-label={config.label}>
+        {config.label}
+      </span>
+    ) : null;
   const layer = renderLayer ? (
     <span
       ref={layerRef}
@@ -437,11 +446,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       data-exiting={exiting && !showBones ? "" : undefined}
       style={layerStyle}
     >
-      {config.label && showBones ? (
-        <span data-autoskeleton-sr="" role="status">
-          {config.label}
-        </span>
-      ) : null}
+      {host ? status : null}
       {layout.bones.map((b, i) => (
         <span key={i} data-bone={b.kind} aria-hidden style={boneStyle(b, layout)} />
       ))}
@@ -475,6 +480,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
         ) : null}
         {host || tableAs ? null : layer}
       </Wrapper>
+      {host || tableAs ? null : status}
       {host && layer ? createPortal(layer, host) : null}
     </LoadingContext.Provider>
   );
