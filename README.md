@@ -98,6 +98,8 @@ fake.email(seed)
 fake.number(4)           // 8888
 fake.image(400, 300)     // transparent image with real intrinsic size
 fake.list(5, (i) => ({ id: fake.id(i), title: fake.sentence(6, i) }))
+fake.id(i)               // "skeleton-<i>"
+fake.id(i, "number")     // -1 - i: numeric ids, never collides with real ones
 fake.date()              // fixed ISO string
 ```
 

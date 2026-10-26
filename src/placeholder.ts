@@ -88,8 +88,15 @@ function date(): string {
   return "2024-01-01T00:00:00.000Z";
 }
 
-function id(seed = 0): string {
-  return `skeleton-${seed}`;
+/**
+ * A unique, stable placeholder id: `"skeleton-<seed>"`, or with `"number"`
+ * a negative number (`-1 - seed`) that can't collide with real (positive)
+ * numeric ids.
+ */
+function id(seed?: number): string;
+function id(seed: number, type: "number"): number;
+function id(seed = 0, type?: "number"): string | number {
+  return type === "number" ? -1 - seed : `skeleton-${seed}`;
 }
 
 export const fake = { text, sentence, paragraph, name, email, number, image, list, date, id };

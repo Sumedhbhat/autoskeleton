@@ -98,7 +98,8 @@ const POSTS_PLACEHOLDER: Post[] = fake.list(5, (i) => ({
 Helpers: `fake.text(chars)`, `fake.sentence(words, seed?)`,
 `fake.paragraph(sentences, seed?)`, `fake.name(seed?)`, `fake.email(seed?)`,
 `fake.number(digits)`, `fake.image(w, h)`, `fake.list(n, i => item)`,
-`fake.date()`, `fake.id(seed)`. All are deterministic (SSR-safe).
+`fake.date()`, `fake.id(seed)` (`"skeleton-<seed>"`), `fake.id(seed, "number")`
+(`-1 - seed`, for numeric ids). All are deterministic (SSR-safe).
 
 Guidelines:
 - **Lengths decide whether the page jumps when data arrives.** Before writing a
@@ -112,7 +113,9 @@ Guidelines:
 - Images: use `fake.image(w, h)` with the real aspect ratio, or the `<img>` will be 0×0 if it has no CSS size.
 - Lists: 3–6 items is usually right; for tables use the page size.
 - Enums/booleans: pick the variant whose layout is most common (e.g. `verified: true` if it shows a badge).
-- Keep IDs unique (`fake.id(i)`) so React keys don't collide.
+- Keep IDs unique (`fake.id(i)`, or `fake.id(i, "number")` when the type is a
+  number) so React keys don't collide. Numeric ones are negative, so they never
+  match a real record.
 
 ## Things to remove when converting
 

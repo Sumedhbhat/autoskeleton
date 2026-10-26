@@ -348,3 +348,14 @@ test("entrance animation without getAnimations(): animationend triggers a re-mea
   expect((await bones(page, "animated")).length).toBeGreaterThan(5);
   await expectAnimatedBones(page);
 });
+
+test("fake.id: string by default, negative number on request", () => {
+  expect(fake.id(3)).toBe("skeleton-3");
+  expect(fake.id()).toBe("skeleton-0");
+  const n: number = fake.id(3, "number");
+  expect(n).toBe(-4);
+  expect(fake.id(0, "number")).toBe(-1);
+  const ids = fake.list(50, (i) => fake.id(i, "number"));
+  expect(new Set(ids).size).toBe(50);
+  expect(ids.every((x) => Number.isInteger(x) && x < 0)).toBe(true);
+});
