@@ -1,4 +1,4 @@
-import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Skeleton,
@@ -295,6 +295,19 @@ function App() {
             <Skeleton loading={loading}>
               <Toolbar tags={["Design", "Engineering", "Ops", "Sales"]} />
             </Skeleton>
+          </Section>
+
+          <Section id="animated" title="Entrance animation (starts at opacity 0)">
+            <div style={{ "--rise-delay": params.get("rise-delay") ?? undefined } as CSSProperties}>
+              <Skeleton loading={loading}>
+                <div className="rise-in">
+                  <UserCard user={user ?? userPlaceholder} />
+                </div>
+                <p className="hidden-note" style={{ opacity: 0 }}>
+                  Intentionally hidden, no bone
+                </p>
+              </Skeleton>
+            </div>
           </Section>
 
           <Section id="hero" title="Centered hero + keep">

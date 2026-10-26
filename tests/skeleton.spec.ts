@@ -303,3 +303,48 @@ test("fade={0}: skeleton disappears immediately and comes back on the next load"
   await page.evaluate(() => window.__setLoading(true));
   expect((await bones(page, "user")).length).toBeGreaterThan(5);
 });
+
+async function finishAnimations(page: Page) {
+  await page.evaluate(() => {
+    for (const a of document.getAnimations()) if (a instanceof CSSAnimation && a.animationName === "rise-in") a.finish();
+  });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+async function expectAnimatedBones(page: Page) {
+  const b = await bones(page, "animated");
+  const note = (await page.locator('[data-fixture="animated"] .hidden-note').boundingBox())!;
+  const noteY = note.y + (await page.evaluate(() => scrollY));
+  // Intentionally hidden opacity:0 content still gets no bone.
+  expect(b.filter((x) => x.y < noteY + note.height && x.y + x.h > noteY)).toEqual([]);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator('[data-fixture="animated"] [data-autoskeleton-layer]')).toHaveCount(0);
+  const real = await realGeometry(page, "animated");
+  // Bones sit at the final (post-animation) position: same box as the avatar and button.
+  for (const m of real.blocks) {
+    const match = b.some(
+      (x) => x.kind === "block" && Math.abs(x.x - m.x) < 1.5 && Math.abs(x.y - m.y) < 1.5 && Math.abs(x.w - m.w) < 1.5 && Math.abs(x.h - m.h) < 1.5,
+    );
+    expect(match, `no block bone for ${m.tag} ${JSON.stringify(m)}`).toBe(true);
+  }
+}
+
+test("entrance animation: content starting at opacity 0 gets bones, re-measured when it ends", async ({ page }) => {
+  await page.goto("/?same=1&rise-delay=60s");
+  // During the delay (opacity exactly 0): already drawn.
+  expect(await page.locator('[data-fixture="animated"] .rise-in').evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expect((await bones(page, "animated")).length).toBeGreaterThan(5);
+  await finishAnimations(page);
+  await expectAnimatedBones(page);
+});
+
+test("entrance animation without getAnimations(): animationend triggers a re-measure", async ({ page }) => {
+  await page.addInitScript(() => {
+    delete (Element.prototype as Partial<Element>).getAnimations;
+  });
+  await page.goto("/?same=1&rise-delay=60s");
+  await bones(page, "animated"); // scrolled into view, still at opacity 0
+  await finishAnimations(page);
+  expect((await bones(page, "animated")).length).toBeGreaterThan(5);
+  await expectAnimatedBones(page);
+});

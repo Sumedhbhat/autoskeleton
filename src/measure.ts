@@ -207,6 +207,26 @@ function radiusCss(cs: CSSStyleDeclaration, rect: Rect): string | undefined {
   return parts.join(" ");
 }
 
+/**
+ * At opacity 0 only because a CSS animation or transition on opacity is
+ * running (entrance animations like `from { opacity: 0 }`). Such content is
+ * about to be visible, so it gets bones; static `opacity: 0` content doesn't.
+ */
+function fadingIn(el: Element): boolean {
+  const anims = el.getAnimations?.();
+  if (!anims) return false;
+  for (const a of anims) {
+    if (a.playState !== "running" && !a.pending) continue;
+    if (typeof CSSTransition !== "undefined" && a instanceof CSSTransition) {
+      if (a.transitionProperty === "opacity") return true;
+      continue;
+    }
+    const effect = a.effect as KeyframeEffect | null;
+    if (effect?.getKeyframes?.().some((k) => "opacity" in k)) return true;
+  }
+  return false;
+}
+
 function intersect(a: Rect, clip: Rect | null): Rect | null {
   if (!clip) return a;
   const r = {
@@ -323,7 +343,7 @@ export function measureBones(roots: Iterable<Node>, origin: { left: number; top:
       if (rect) grow(rect);
       return;
     }
-    if (parseFloat(cs.opacity) === 0) return;
+    if (parseFloat(cs.opacity) === 0 && !fadingIn(el)) return;
 
     if (hint === "block" || BLOCK_TAGS.has(tag) || el.getAttribute("role") === "img") {
       if (rect) {

@@ -224,8 +224,11 @@ with CSS variables on any ancestor: `--autoskeleton-color`,
    are relative to the layer's own box, so the result is correct whatever the
    containing block is. Inside table internals the layer is portaled next to
    the table so the markup stays valid.
-4. A `ResizeObserver`, a `MutationObserver`, image `load` events, font loading
-   and (when needed) scroll trigger a re-measure, coalesced to one per frame.
+4. A `ResizeObserver`, a `MutationObserver`, image `load` events, font loading,
+   `animationend`/`transitionend` and (when needed) scroll trigger a
+   re-measure, coalesced to one per frame. Content at `opacity: 0` gets no
+   bones, unless an opacity animation or transition is running on it
+   (entrance animations like `from { opacity: 0 }`).
 5. When loading ends, the layer fades out over the already-visible content.
 
 On the server, content is hidden with an inline style (so placeholder text

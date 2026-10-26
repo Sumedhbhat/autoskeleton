@@ -141,6 +141,8 @@ function contentRoots(wrapper: Element): Node[] {
   );
 }
 
+const MOTION_END = ["animationend", "transitionend"] as const;
+
 const TABLE_PARTS = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "COLGROUP"]);
 
 /**
@@ -319,6 +321,12 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
     });
     mo.observe(wrapper, { subtree: true, childList: true, characterData: true, attributes: true });
     wrapper.addEventListener("load", schedule, true);
+    // Entrance animations/transitions (opacity, transform) end without any
+    // resize or mutation; re-measure at their final position.
+    const onMotionEnd = (e: Event) => {
+      if (!(e.target instanceof Node && layer.contains(e.target))) schedule();
+    };
+    for (const t of MOTION_END) wrapper.addEventListener(t, onMotionEnd, true);
     window.addEventListener("resize", schedule);
     const fonts = typeof document !== "undefined" ? document.fonts : undefined;
     fonts?.addEventListener?.("loadingdone", schedule);
@@ -334,6 +342,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       ro?.disconnect();
       mo.disconnect();
       wrapper.removeEventListener("load", schedule, true);
+      for (const t of MOTION_END) wrapper.removeEventListener(t, onMotionEnd, true);
       window.removeEventListener("resize", schedule);
       fonts?.removeEventListener?.("loadingdone", schedule);
       window.removeEventListener("scroll", onScroll, { capture: true });
