@@ -360,6 +360,18 @@ function App() {
             </SkeletonList>
           </Section>
 
+          <Section id="list-animated" title="SkeletonList: rows with an entrance animation">
+            <div className="feed" style={{ "--rise-delay": params.get("rise-delay") ?? undefined } as CSSProperties}>
+              <SkeletonList items={loading ? undefined : listPosts} placeholder={postPlaceholder} count={3}>
+                {(p) => (
+                  <div className="rise-in" key={p.id}>
+                    <PostItem post={p} />
+                  </div>
+                )}
+              </SkeletonList>
+            </div>
+          </Section>
+
           <Section id="table" title="Table rows (as='tbody')" wide>
             <table className="table">
               <thead>

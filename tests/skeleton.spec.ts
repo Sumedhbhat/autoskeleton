@@ -919,6 +919,30 @@ test("SkeletonList as='tbody': one labelled status, in the portaled layer", asyn
   expect(errors).toEqual([]);
 });
 
+test("SkeletonList: rows with an entrance animation (opacity 0 at first) get bones", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1&rise-delay=60s");
+  const root = page.locator('[data-fixture="list-animated"]');
+  await expect(root.locator(".rise-in")).toHaveCount(3);
+  // During the delay the rows are at opacity exactly 0, and still drawn.
+  expect(await root.locator(".rise-in").first().evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expectIdenticalRows(await bonesPerItem(page, "list-animated", ".rise-in"), 3);
+  // When the animation ends they're re-measured at their final position.
+  await finishAnimations(page);
+  const after = await bonesPerItem(page, "list-animated", ".rise-in");
+  expectIdenticalRows(after, 3);
+  const top = await root.locator(".rise-in").first().evaluate((el) => el.getBoundingClientRect().top);
+  const bone = await root.locator("[data-bone]").first().evaluate((el) => el.getBoundingClientRect().top);
+  expect(bone).toBeGreaterThanOrEqual(top - 0.5);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // Load more: the next rows start invisible too and still get bones.
+  await page.evaluate(() => window.__setLoading(true));
+  expect(await root.locator(".rise-in").first().evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expectIdenticalRows(await bonesPerItem(page, "list-animated", ".rise-in"), 3);
+  expect(errors).toEqual([]);
+});
+
 test("List under SkeletonSuspense: typed fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
   const errors = trackErrors(page);
   const warnings = trackWarnings(page);
