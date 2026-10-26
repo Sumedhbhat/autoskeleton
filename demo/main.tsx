@@ -244,17 +244,23 @@ function App() {
             </Skeleton>
           </Section>
 
-          <Section id="skeleton-suspense" title="SkeletonSuspense + useSuspenseData">
+          <Section id="skeleton-suspense" title="SkeletonSuspense + useSuspenseData(promise, placeholder)">
             <SkeletonSuspenseDemo />
           </Section>
 
-          <Section id="suspense-override" title="SkeletonSuspense: two reads, typed override">
-            <OverrideDemo />
+          <Section id="suspense-shorthand" title="SkeletonSuspense: untyped fallback shorthand + a typed read">
+            <ShorthandDemo />
           </Section>
 
           <Section id="suspense-manual" title="useSuspenseData outside a boundary (plain Suspense)">
             <ManualSuspenseDemo />
           </Section>
+
+          {params.has("missing") ? (
+            <Section id="suspense-missing" title="SkeletonSuspense: a read without a placeholder">
+              <MissingDemo />
+            </Section>
+          ) : null}
 
           {params.has("ignored") ? (
             <Section id="suspense-ignored" title="SkeletonSuspense: child suspends some other way">
@@ -400,6 +406,10 @@ function App() {
             <SuspenseDemo />
           </Section>
 
+          <Section id="suspense-id" title="SkeletonSuspense without placeholders: id cache">
+            <SuspenseIdDemo />
+          </Section>
+
           <Section id="suspense-error" title="SkeletonSuspense: rejection → error boundary">
             <SuspenseErrorDemo />
           </Section>
@@ -434,7 +444,21 @@ function SuspenseDemo() {
     </div>
   );
 }
-
+// The same with SkeletonSuspense and no placeholder anywhere: the skeleton
+// render measures nothing, so the `id`-cached layout is drawn.
+function SuspenseIdDemo() {
+  const [k, setK] = useState(100);
+  return (
+    <div>
+      <button data-skeleton="ignore" onClick={() => setK((n) => n + 1)} id="suspense-id-reload">
+        Refetch
+      </button>
+      <SkeletonSuspense id="suspense-id-profile">
+        <SuspendingProfile k={k} />
+      </SkeletonSuspense>
+    </div>
+  );
+}
 // ---------------------------------------------------------------------------
 // Suspense with promises. Each demo gets a pending promise while the global
 // switch says "loading", resolved when it flips (a new one on each reload).
@@ -472,9 +496,9 @@ function useDemoPromise<T>(value: T): Deferred<T> {
 const demoPosts = SAME ? postsPlaceholder : realPosts;
 const demoUser = SAME ? userPlaceholder : realUser;
 
-/** Reads its promise with useSuspenseData: the placeholder in the fallback, the posts after. */
-function SuspendingFeed({ promise, placeholder }: { promise: Promise<Post[]>; placeholder?: Post[] }) {
-  const posts = useSuspenseData(promise, placeholder);
+/** Reads its promise with a typed placeholder: the placeholder in the skeleton, the posts after. */
+function SuspendingFeed({ promise }: { promise: Promise<Post[]> }) {
+  const posts = useSuspenseData(promise, postsPlaceholder);
   const inSkeleton = useSkeleton();
   const [fired, setFired] = useState(0);
   useEffect(() => {
@@ -490,6 +514,15 @@ function SuspendingFeed({ promise, placeholder }: { promise: Promise<Post[]>; pl
   );
 }
 function SuspendingUser({ promise }: { promise: PromiseLike<User> }) {
+  const user = useSuspenseData(promise, userPlaceholder);
+  return (
+    <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
+      <UserCard user={user} />
+    </div>
+  );
+}
+/** No placeholder of its own: gets the boundary's untyped `fallback`, if any. */
+function UntypedUser({ promise }: { promise: PromiseLike<User> }) {
   const user = useSuspenseData(promise);
   return (
     <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
@@ -498,10 +531,11 @@ function SuspendingUser({ promise }: { promise: PromiseLike<User> }) {
   );
 }
 
+// The typed form: no `fallback`; the reader passes its own placeholder.
 function SkeletonSuspenseDemo() {
   const { promise } = useDemoPromise(demoPosts);
   return (
-    <SkeletonSuspense fallback={postsPlaceholder}>
+    <SkeletonSuspense>
       <SuspendingFeed promise={promise} />
     </SkeletonSuspense>
   );
@@ -514,16 +548,34 @@ listeners.add(() => {
   else userRequest.resolve(demoUser);
 });
 
-// Two reads under one boundary: the user gets the boundary's placeholder, the
-// feed (another shape) its own typed one.
-function OverrideDemo() {
+// The shorthand: the user read has no placeholder, so it gets the boundary's
+// (lazy, untyped) `fallback`; the feed passes its own typed one, which wins.
+function ShorthandDemo() {
   useLoading();
   const { promise } = useDemoPromise(demoPosts);
   return (
     <SkeletonSuspense fallback={() => userPlaceholder}>
       <div className="feed">
-        <SuspendingUser promise={userRequest.promise} />
-        <SuspendingFeed promise={promise} placeholder={postsPlaceholder} />
+        <UntypedUser promise={userRequest.promise} />
+        <SuspendingFeed promise={promise} />
+      </div>
+    </SkeletonSuspense>
+  );
+}
+
+// No placeholder for the user read and no `fallback`: it suspends inside the
+// skeleton, with a dev warning. Its own <Suspense> keeps that to the user
+// card (without it the whole skeleton would be empty); the feed is still drawn.
+function MissingDemo() {
+  useLoading();
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense>
+      <div className="feed">
+        <Suspense fallback={null}>
+          <UntypedUser promise={userRequest.promise} />
+        </Suspense>
+        <SuspendingFeed promise={promise} />
       </div>
     </SkeletonSuspense>
   );
@@ -610,7 +662,7 @@ function SuspenseErrorDemo() {
         Resolve
       </button>
       <ErrorBoundary key={retry?.n ?? 0} onRetry={() => setRetry((r) => ({ n: (r?.n ?? 0) + 1, d: deferred<User>() }))}>
-        <SkeletonSuspense fallback={userPlaceholder}>
+        <SkeletonSuspense>
           <SuspendingUser promise={current.promise} />
         </SkeletonSuspense>
       </ErrorBoundary>

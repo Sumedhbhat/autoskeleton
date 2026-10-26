@@ -85,7 +85,7 @@ const GEOMETRY_FIXTURES = [
   "nested",
   "transformed",
   "skeleton-suspense",
-  "suspense-override",
+  "suspense-shorthand",
   "suspense-manual",
 ];
 
@@ -520,8 +520,18 @@ async function fadingBones(page: Page, fixture: string): Promise<R[] | null> {
   );
 }
 
-test("SkeletonSuspense: the child renders the placeholder while suspended, content fades in", async ({ page }) => {
+/** Collect autoskeleton's own console warnings. */
+function trackWarnings(page: Page): string[] {
+  const warnings: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "warning" && m.text().includes("autoskeleton")) warnings.push(m.text());
+  });
+  return warnings;
+}
+
+test("SkeletonSuspense: no fallback, the child's typed placeholder while suspended, content fades in", async ({ page }) => {
   const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
   await page.goto("/");
   const root = page.locator('[data-fixture="skeleton-suspense"]');
   const wrapper = root.locator("[data-autoskeleton]");
@@ -555,6 +565,9 @@ test("SkeletonSuspense: the child renders the placeholder while suspended, conte
   await expect(reader).not.toHaveAttribute("data-tracked", "0"); // StrictMode runs it twice
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   expect(errors).toEqual([]);
+  // Every boundary on the page either has its reads covered or no `fallback`
+  // to leave unused: no warnings.
+  expect(warnings).toEqual([]);
 });
 
 test("SkeletonSuspense: suspending again shows the skeleton", async ({ page }) => {
@@ -572,17 +585,17 @@ test("SkeletonSuspense: suspending again shows the skeleton", async ({ page }) =
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
 });
 
-test("SkeletonSuspense: several reads under one boundary, and a typed override", async ({ page }) => {
+test("SkeletonSuspense: the untyped fallback shorthand, next to a typed read that wins", async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto("/");
-  const root = page.locator('[data-fixture="suspense-override"]');
+  const root = page.locator('[data-fixture="suspense-shorthand"]');
   await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
   // The user reads the boundary's placeholder, the feed its own.
   await expect(root.locator('[data-reader="user"][data-in-skeleton] .user-card h3')).toContainText(fake.name());
   await expect(root.locator('[data-reader="feed"][data-in-skeleton] .post strong').first()).toHaveText(fake.name(1));
-  const before = await bones(page, "suspense-override");
+  const before = await bones(page, "suspense-shorthand");
   expect(before.length).toBeGreaterThan(10);
-  const fading = await fadingBones(page, "suspense-override");
+  const fading = await fadingBones(page, "suspense-shorthand");
   expect(fading, "fallback bones faded out over the content").not.toBeNull();
   await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
   await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
@@ -590,7 +603,7 @@ test("SkeletonSuspense: several reads under one boundary, and a typed override",
   // Suspends again with a new request.
   await page.evaluate(() => window.__setLoading(true));
   await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
-  expect((await bones(page, "suspense-override")).length).toBeGreaterThan(10);
+  expect((await bones(page, "suspense-shorthand")).length).toBeGreaterThan(10);
   await page.evaluate(() => window.__setLoading(false));
   await expect(root.locator("[data-in-skeleton]")).toHaveCount(0);
   await expect(root.locator(".user-card h3")).toBeVisible();
@@ -631,18 +644,57 @@ test("SkeletonSuspense: a rejection reaches the error boundary", async ({ page }
 });
 
 test("SkeletonSuspense: warns when a child suspends without useSuspenseData", async ({ page }) => {
-  const warnings: string[] = [];
-  page.on("console", (m) => {
-    if (m.type() === "warning" && m.text().includes("autoskeleton")) warnings.push(m.text());
-  });
+  const warnings = trackWarnings(page);
   await page.goto("/?ignored=1");
   const root = page.locator('[data-fixture="suspense-ignored"]');
   // The fallback renders, but the child suspends inside it: no placeholder, no bones.
   await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
   await expect(root.locator(".user-card")).toHaveCount(0);
   await expect.poll(() => warnings.length).toBe(1);
+  expect(warnings[0]).toContain("got a `fallback`");
   expect(warnings[0]).toContain("useSuspenseData");
   await page.evaluate(() => window.__setLoading(false));
   await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
   expect(warnings.length).toBe(1);
+});
+
+test("SkeletonSuspense: a read with no placeholder suspends in the skeleton, with a warning", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  await page.goto("/?missing=1");
+  const root = page.locator('[data-fixture="suspense-missing"]');
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  // The untyped read suspends inside the skeleton instead of crashing. The
+  // nearest <Suspense> there is the user's own one around it, so only that part
+  // drops out; the typed feed is still drawn.
+  await expect(root.locator('[data-reader="feed"][data-in-skeleton] .post strong').first()).toHaveText(fake.name(1));
+  await expect(root.locator(".user-card")).toHaveCount(0);
+  expect((await bones(page, "suspense-missing")).length).toBeGreaterThan(5);
+  await expect.poll(() => warnings.length).toBe(1);
+  expect(warnings[0]).toContain("has no placeholder");
+  expect(warnings[0]).toContain("useSuspenseData(promise, PLACEHOLDER)");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-in-skeleton]")).toHaveCount(0);
+  expect(warnings.length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense: with no placeholders, id draws the cached layout on refetch", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-id"]');
+  await expect(root.locator(".user-card")).toBeVisible({ timeout: 5000 });
+  // Let the content's layout be saved, then suspend again.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.locator("#suspense-id-reload").click();
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(1);
+  expect((await bones(page, "suspense-id")).length).toBeGreaterThan(4);
+  await expect(root.locator(".user-card")).toBeVisible({ timeout: 5000 });
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
+  expect(warnings).toEqual([]);
+  expect(errors).toEqual([]);
 });

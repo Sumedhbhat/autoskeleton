@@ -98,6 +98,7 @@ const OWN_PROPS = new Set([
   "inert",
   // Internal to SkeletonSuspense.
   "handoff",
+  "cacheWhenEmpty",
 ]);
 
 function htmlAttributes(props: object): Record<string, unknown> {
@@ -145,20 +146,42 @@ interface RenderProps<T> extends BaseProps {
 
 export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & SkeletonHTMLAttributes;
 
+/**
+ * Props of `<SkeletonSuspense>`: the Suspense options, plus the `<Skeleton>`
+ * options for the skeleton it draws.
+ *
+ * @example
+ * ```tsx
+ * <SkeletonSuspense id="comments" label="Loading comments" animation="pulse">
+ *   <Comments promise={commentsPromise} />
+ * </SkeletonSuspense>
+ * ```
+ */
 export interface SkeletonSuspenseProps extends SkeletonConfig {
   /**
-   * Placeholder data (or `() => data`, called lazily). While the children
-   * suspend, they're rendered again as the skeleton, and every
-   * `useSuspenseData()` in them returns this instead of suspending. It must
-   * have the shape their promise resolves to. Leave it out to draw the
-   * `id`-cached layout instead.
+   * Untyped shorthand: placeholder data (or `() => data`, called lazily) for
+   * every `useSuspenseData(promise)` call below that passes no placeholder of
+   * its own. It crosses a context, so it is **not type-checked** against the
+   * promises: prefer `useSuspenseData(promise, PLACEHOLDER)`, which is.
+   * Optional. Never an element.
+   *
+   * @example
+   * ```tsx
+   * <SkeletonSuspense fallback={COMMENTS_PLACEHOLDER}>
+   *   <Comments promise={commentsPromise} />
+   * </SkeletonSuspense>
+   * ```
    */
   fallback?: unknown;
-  /** The content. Read promises with `useSuspenseData(promise)`. */
+  /** The content. Read promises with `useSuspenseData(promise, placeholder)`. */
   children?: ReactNode;
   /** Passed to `<Suspense name>` (React 19 DevTools). */
   name?: string;
-  /** Cache key, as on `<Skeleton>`: the content's layout is remembered for when there's no `fallback`. */
+  /**
+   * Cache key, as on `<Skeleton>`: the content's layout is remembered and
+   * drawn when the skeleton render measures nothing (no placeholders, or
+   * children that suspend some other way).
+   */
   id?: string;
   /** Screen-reader text announced while suspended (role="status"). Off by default. */
   label?: string;
@@ -191,7 +214,11 @@ function createHandoff(): Handoff {
   };
 }
 
-type ViewProps<T> = (NodeProps | RenderProps<T>) & { handoff?: Handoff };
+type ViewProps<T> = (NodeProps | RenderProps<T>) & {
+  handoff?: Handoff;
+  /** Draw the `id`-cached layout whenever nothing is measured, even with children. */
+  cacheWhenEmpty?: boolean;
+};
 
 const EMPTY: BoneLayout = { bones: [], width: 0, height: 0, left: 0, top: 0 };
 
@@ -291,19 +318,39 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
 
 /**
  * A `<Suspense>` boundary whose fallback is the children themselves, rendered
- * with placeholder data and drawn as a skeleton. `fallback` is the data:
- * `useSuspenseData(promise)` returns it inside the fallback and reads the
- * promise everywhere else. When the content shows, the fallback's bones fade
- * out over it.
+ * with placeholder data and drawn as a skeleton. While they suspend, the
+ * boundary renders them again as the skeleton, and each
+ * `useSuspenseData(promise, placeholder)` call in them returns its
+ * placeholder there instead of suspending. When the content shows, the
+ * skeleton fades out over it.
+ *
+ * `fallback` is an optional, untyped shorthand for calls that pass no
+ * placeholder. A call with neither suspends in the skeleton, which drops the
+ * children up to the nearest `<Suspense>` around it (all of them if there's
+ * none). With `id`, the cached layout is drawn when the skeleton measures
+ * nothing.
+ *
+ * @example
+ * ```tsx
+ * <SkeletonSuspense>
+ *   <Comments promise={commentsPromise} />
+ * </SkeletonSuspense>
+ *
+ * function Comments({ promise }: { promise: Promise<Comment[]> }) {
+ *   const comments = useSuspenseData(promise, COMMENTS_PLACEHOLDER); // checked against Comment[]
+ *   return <CommentList comments={comments} />;
+ * }
+ * ```
  */
 export function SkeletonSuspense({ fallback, children, name, ...view }: SkeletonSuspenseProps): ReactElement {
   // Outlives the fallback, so the content can fade out the fallback's bones.
   const [handoff] = useState(createHandoff);
-  const slot = useMemo(() => (fallback === undefined ? null : createSlot(fallback)), [fallback]);
-  // Inside another boundary's fallback: be a fallback too (nearest placeholder
-  // wins), without starting or waiting on this boundary's promises.
-  const inFallback = useContext(PlaceholderContext) !== null;
-  if (inFallback) {
+  // Inside another boundary's fallback: be a fallback too (the nearest
+  // `fallback` wins), without starting or waiting on this boundary's promises.
+  const parent = useContext(PlaceholderContext);
+  const quiet = view.id !== undefined;
+  const slot = useMemo(() => createSlot(fallback, parent, quiet), [fallback, parent, quiet]);
+  if (parent) {
     return (
       <SuspenseFallback slot={slot} view={view}>
         {children}
@@ -331,26 +378,38 @@ function SuspenseFallback({
   handoff,
   children,
 }: {
-  slot: PlaceholderSlot | null;
+  slot: PlaceholderSlot;
   view: BaseProps;
   handoff?: Handoff;
   children: ReactNode;
 }): ReactElement {
-  // After the whole fallback rendered: was the placeholder read at all?
+  // After the whole fallback rendered: did every call find a placeholder, and
+  // was the boundary's `fallback` read at all?
   useEffect(() => {
-    if (!DEV || !slot?.unused()) return;
-    console.warn(
-      "autoskeleton: <SkeletonSuspense> got a `fallback`, but no useSuspenseData() call in its children " +
-        "returned it, so the skeleton has no placeholder data. Read the children's promises with useSuspenseData(promise).",
-    );
+    if (!DEV) return;
+    if (slot.missed()) {
+      console.warn(
+        "autoskeleton: a useSuspenseData(promise) call inside a <SkeletonSuspense> skeleton has no placeholder, " +
+          "so it suspends there and the skeleton drops everything up to the nearest <Suspense> around it. " +
+          "Pass one: useSuspenseData(promise, PLACEHOLDER).",
+      );
+    }
+    if (slot.unused()) {
+      console.warn(
+        "autoskeleton: <SkeletonSuspense> got a `fallback`, but no useSuspenseData() call in its children " +
+          "returned it, so it isn't used. Read the children's promises with useSuspenseData(promise), " +
+          "or pass each call its own placeholder and drop `fallback`.",
+      );
+    }
   });
   return (
     <PlaceholderContext.Provider value={slot}>
-      <SkeletonView {...view} loading handoff={handoff}>
-        {/* A child that suspends some other way (useSuspenseQuery, lazy) would
+      <SkeletonView {...view} loading handoff={handoff} cacheWhenEmpty>
+        {/* A child that suspends (no placeholder, useSuspenseQuery, lazy) would
             suspend the fallback too, and the boundary above would show
-            instead. Contain it: that part is left out of the skeleton. */}
-        {slot ? <Suspense fallback={null}>{children}</Suspense> : null}
+            instead. Contain it: the children up to the nearest <Suspense>
+            around that child are left out of the skeleton. */}
+        <Suspense fallback={null}>{children}</Suspense>
       </SkeletonView>
     </PlaceholderContext.Provider>
   );
@@ -592,7 +651,7 @@ function SkeletonView<T>(props: ViewProps<T>): ReactElement {
   }, [loading, id, persist]);
 
   const renderLayer = showBones || exiting;
-  const useCache = showBones && content == null && cached !== null;
+  const useCache = showBones && (content == null || props.cacheWhenEmpty === true) && cached !== null;
   const showFallback = showBones && content == null && cached === null && empty && props.fallback !== undefined;
 
   const layerStyle = { "--sk-w": `${Math.max(layout.width, 1)}px` } as CSSProperties;

@@ -47,7 +47,7 @@ if (parseInt((await import("react")).version, 10) >= 19) {
   assert.equal(html.match(/data-href="autoskeleton"/g)?.length, 1);
 }
 
-// SkeletonSuspense: the fallback is the child rendering the placeholder data.
+// SkeletonSuspense: the fallback is the child rendering its placeholder data.
 const postsPh = [{ title: fake.sentence(5) }];
 const list = (posts) => h("ul", null, posts.map((p, i) => h("li", { key: i }, p.title)));
 /** Reads the promise with useSuspenseData; marks whether it ran inside the skeleton. */
@@ -55,8 +55,11 @@ function Posts({ promise, placeholder }) {
   const posts = useSuspenseData(promise, placeholder);
   return h("section", { "data-skeleton-render": String(useSkeleton()) }, list(posts));
 }
+// The typed form: no `fallback`, the call passes its own placeholder.
+const typed = (promise) => h(SkeletonSuspense, null, h(Posts, { promise, placeholder: postsPh }));
+// The untyped shorthand: the boundary's `fallback` for calls without one.
 const suspense = (promise, extra) => h(SkeletonSuspense, { fallback: postsPh, ...extra }, h(Posts, { promise }));
-const fallbackHtml = renderToString(suspense(new Promise(() => {})));
+const fallbackHtml = renderToString(typed(new Promise(() => {})));
 // Inside a Suspense boundary (renderToString can't wait, so it's left for the client).
 assert.match(fallbackHtml, /<!--\$[!?]-->(<template[^>]*><\/template>)?<div data-autoskeleton="" aria-busy="true"/);
 // The same child, rendered with the placeholder, hidden, inside a loading skeleton.
@@ -64,6 +67,8 @@ assert.match(
   fallbackHtml,
   new RegExp(`aria-busy="true" data-pending="" style="display:contents;visibility:hidden">(<!--\\$-->)?<section data-skeleton-render="true"><ul><li>${fake.sentence(5)}</li>`),
 );
+// The shorthand renders the same skeleton.
+assert.equal(renderToString(suspense(new Promise(() => {}))), fallbackHtml);
 // Lazy placeholder, and config options reach the fallback skeleton.
 assert.match(
   renderToString(suspense(new Promise(() => {}), { fallback: () => postsPh, as: "section", className: "c" })),
@@ -89,6 +94,22 @@ const override = renderToString(
   h(SkeletonSuspense, { fallback: userPh }, h(Posts, { promise: new Promise(() => {}), placeholder: [{ title: "Own" }] })),
 );
 assert.ok(override.includes("<li>Own</li>"));
+// In an outer skeleton, an inner boundary without `fallback` uses the outer one's for untyped calls.
+const inherited = renderToString(
+  h(
+    SkeletonSuspense,
+    { fallback: userPh },
+    h(Posts, { promise: new Promise(() => {}), placeholder: postsPh }),
+    h(SkeletonSuspense, null, h(User, { promise: new Promise(() => {}) })),
+  ),
+);
+assert.ok(inherited.includes(`<b>${fake.name(3)}</b>`));
+// No placeholder anywhere: the call suspends inside the skeleton (no crash, nothing rendered for it).
+const missing = renderToString(
+  h(SkeletonSuspense, null, h(User, { promise: new Promise(() => {}) }), h(Posts, { promise: new Promise(() => {}), placeholder: postsPh })),
+);
+assert.match(missing, /aria-busy="true"/);
+assert.doesNotMatch(missing, /<b>/);
 // Nothing suspends: the content directly, no fallback.
 const ready = Object.assign(Promise.resolve([{ title: "Done" }]), { status: "fulfilled", value: [{ title: "Done" }] });
 const readyHtml = renderToString(suspense(ready));
@@ -129,7 +150,7 @@ function stream(tree, release) {
 let resolvePosts;
 const later = new Promise((r) => (resolvePosts = r));
 const streamed = await stream(
-  h("main", null, suspense(later)),
+  h("main", null, typed(later)),
   () => resolvePosts([{ title: "Streamed" }]),
 );
 assert.match(streamed.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true".*data-skeleton-render="true"><ul><li>${fake.sentence(5)}</li>`));
@@ -139,11 +160,28 @@ assert.match(streamed.all, /<div hidden id="S:\d+"><div data-autoskeleton="" sty
 assert.match(streamed.all, /<section data-skeleton-render="false"><ul><li>Streamed<\/li>/);
 assert.deepEqual(streamed.errors, []);
 
+// The same with the shorthand.
+let resolveShort;
+const laterShort = new Promise((r) => (resolveShort = r));
+const short = await stream(h("main", null, suspense(laterShort)), () => resolveShort([{ title: "Short" }]));
+assert.match(short.shell, new RegExp(`<!--\\$\\?-->.*data-skeleton-render="true"><ul><li>${fake.sentence(5)}</li>`));
+assert.match(short.all, /<li>Short<\/li>/);
+
+// No placeholder anywhere: the shell still renders, and the stream finishes once the promise settles.
+let resolveUser;
+const laterUser = new Promise((r) => (resolveUser = r));
+const noPh = await stream(h("main", null, h(SkeletonSuspense, null, h(User, { promise: laterUser }))), () =>
+  resolveUser({ name: "Streamed user" }),
+);
+assert.match(noPh.shell, /aria-busy="true"/);
+assert.match(noPh.all, /<b>Streamed user<\/b>/);
+assert.deepEqual(noPh.errors, []);
+
 // Rejection: reported through onError, the fallback stays for the client to retry and throw.
 let rejectPosts;
 const failing = new Promise((_, r) => (rejectPosts = r));
 const failed = await stream(
-  h("main", null, suspense(failing)),
+  h("main", null, typed(failing)),
   () => rejectPosts(new Error("boom")),
 );
 assert.equal(failed.errors[0]?.message, "boom");
