@@ -108,27 +108,36 @@ closer the lengths are to real data, the less the page moves when data arrives.
 
 ### Tables, lists and grids
 
-For a list, declare one placeholder item and a count:
+A list skeleton is one placeholder item, repeated. Declare the item once:
 
 ```tsx
 const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: fake.name() };
+```
 
+Then pick by where the list comes from:
+
+- **No Suspense** (`useQuery(...).data`, a store, props): `<SkeletonList>`.
+- **Under Suspense** (a promise read in the child): `useSuspenseData` with a
+  `fake.list` placeholder. See [Lists under Suspense](#lists-under-suspense).
+
+```tsx
 <SkeletonList items={stories} placeholder={STORY_PLACEHOLDER} count={5}>
   {(story) => <StoryCard key={story.id} story={story} />}
 </SkeletonList>
 ```
 
 While `items` is `null` or `undefined`, the skeleton is the placeholder
-rendered `count` times (default 3), as identical rows. The same function then
-renders each real item. Return a keyed element, as in `.map()`. Placeholder
-rows are keyed by index for you, so their shared `id` doesn't collide.
-`loading` overrides the inferred flag. `placeholder` can be a value or
-`() => value`, and every other `<Skeleton>` prop works. For a list under
-`SkeletonSuspense`, see Suspense below.
+rendered `count` times (default 3), as identical rows. An empty `items` with
+`loading` set gets the placeholder rows too. The same function then renders
+each real item: return a keyed element, as in `.map()`. Placeholder rows are
+keyed by index for you, so the shared `id` doesn't collide. `loading`
+overrides the inferred flag. `placeholder` can be a value or `() => value`,
+and every other `<Skeleton>` prop works.
 
 The wrapper is `display: contents`, so it never changes flex or grid layout:
 put the list straight inside the flex or grid container. Inside a table,
-render it as the `tbody`:
+render it as the `tbody` (a `<div>` isn't valid there), and the bone layer is
+portaled out of the table:
 
 ```tsx
 <table>
@@ -148,8 +157,8 @@ attributes go to the wrapper.
 </Skeleton>
 ```
 
-For a `<ul>`, use `as="ul"`. Its own box is `display: contents` too, so put
-margins, padding and grid styles on a parent.
+For a `<ul>`, use `as="ul"` and return `<li>`s. Its own box is
+`display: contents` too, so put margins, padding and grid styles on a parent.
 
 `<Skeleton as="tbody">` works around any rows too, e.g. a varied placeholder
 array built with `fake.list` and passed through `usePlaceholder`.
@@ -244,6 +253,34 @@ function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: NoInfer<T> | 
 - Create the promise outside render (a loader, an event handler, a cache) and
   pass it down. A new promise per render suspends forever.
 
+#### Lists under Suspense
+
+Repeat one item with `fake.list`, giving each copy its own `id`, and pass the
+array to `useSuspenseData`. The child maps whatever it returns: placeholder
+rows in the skeleton, then the real ones. No `fallback` needed.
+
+```tsx
+const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+
+<SkeletonSuspense>
+  <Stories promise={storiesPromise} />
+</SkeletonSuspense>
+
+function Stories({ promise }: { promise: Promise<Story[]> }) {
+  const stories = useSuspenseData(promise, STORIES_PLACEHOLDER); // checked against Story[]
+  return stories.map((story) => <StoryCard key={story.id} story={story} />);
+}
+```
+
+- Each row needs its own `id` (or whatever the key is): the child keys rows
+  itself, so identical copies would collide on their keys.
+- `fake.list` returns a plain `Story[]`, so the item shape is checked: a
+  missing or mistyped field is a compile error.
+- Skip `SkeletonList` here: inside the skeleton the data already is the
+  placeholder rows.
+- The boundary's wrapper is `display: contents` too: keep its parent the
+  list's flex or grid container.
+
 #### The untyped `fallback` shorthand
 
 ```tsx
@@ -257,7 +294,8 @@ Every call without its own placeholder gets the boundary's `fallback` (a
 React context, so **TypeScript can't check it against the promise**: a wrong
 shape compiles and crashes at runtime. Prefer the typed form above. A call's
 own placeholder wins over `fallback`; with nested boundaries, the nearest
-`fallback` wins.
+`fallback` wins. A `fake.list` array works as `fallback` for a list too, with
+the same caveat.
 
 #### No placeholder, warnings, errors
 
@@ -352,27 +390,6 @@ Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain
 </Suspense>
 ```
 
-For a list, the fallback is one item repeated with `fake.list`, and the
-child maps what `useSuspenseData` returns:
-
-```tsx
-const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
-
-<SkeletonSuspense fallback={STORIES_PLACEHOLDER}>
-  <Stories promise={storiesPromise} />
-</SkeletonSuspense>
-
-function Stories({ promise }: { promise: Promise<Story[]> }) {
-  const stories = useSuspenseData(promise);
-  return stories.map((story) => <StoryCard key={story.id} story={story} />);
-}
-```
-
-Give each copy its own `id` (or whatever the key is), or the identical rows
-collide on their keys. Skip `SkeletonList` here: inside the fallback the items
-are already the placeholder rows. Keep the boundary's parent the list's flex
-or grid container: the boundary's wrapper is `display: contents` too.
-
 How this differs from `loading`:
 
 - Suspense swaps trees, so the content mounts fresh when data arrives. Its
@@ -457,9 +474,9 @@ If you need one, put it on an element inside, or wrap the skeleton.
 `<SkeletonSuspense>` and `useSuspenseData(promise, placeholder?)` are covered
 under Suspense above.
 
-`<SkeletonList>` takes the same props as `<Skeleton>`, with `items` (instead of `data`),
-`placeholder` (one item) and `count` (default `3`). Its children function
-gets `(item, index)`.
+`<SkeletonList>` takes the same props as `<Skeleton>`, with `items` (instead
+of `data`), `placeholder` (one item, or `() => item`) and `count` (default
+`3`). Its children function gets `(item, index)`. See Tables, lists and grids.
 
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 

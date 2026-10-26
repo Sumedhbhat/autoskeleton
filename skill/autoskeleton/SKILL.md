@@ -73,9 +73,17 @@ For content that renders fine while loading, or to skeleton over stale data
 ## Pattern D: lists with `SkeletonList`
 
 For a list of same-shaped items (stories, posts, rows, cards), declare **one**
-placeholder item and a `count`. The skeleton is that item rendered `count`
-times (default 3, identical rows), then the same function renders each real
-item. `loading` is `items == null`; pass `loading` to override.
+placeholder item. Then pick by where the list comes from:
+
+- No Suspense (`useQuery(...).data`, a store, props): `SkeletonList`, below.
+- Suspense (a promise read in the child): `useSuspenseData(promise,
+  fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`. See "Lists under
+  Suspense".
+
+`SkeletonList` renders the item `count` times (default 3, identical rows),
+then the same function renders each real item. `loading` is `items == null`;
+pass `loading` to override. An empty `items` with `loading` set gets the
+placeholder rows too.
 
 ```tsx
 const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: fake.name() };
@@ -88,7 +96,6 @@ const STORY_PLACEHOLDER: Story = { id: fake.id(), title: fake.sentence(8), by: f
 Return a keyed element as in `.map()`. Placeholder rows are keyed by index
 for you, so the shared placeholder `id` never collides. `placeholder` may be a
 value or `() => value`. All `<Skeleton>` props work (`as`, `id`, `label`…).
-Not for Suspense: there, the fallback is `fake.list` (below).
 
 ## Writing placeholders
 
@@ -137,8 +144,10 @@ Guidelines:
   varied `fake.list(…)` instead.
 - Enums/booleans: pick the variant whose layout is most common (e.g. `verified: true` if it shows a badge).
 - Keep IDs unique (`fake.id(i)`, or `fake.id(i, "number")` when the type is a
-  number) so React keys don't collide (`SkeletonList` handles this itself).
-  Numeric ones are negative, so they never match a real record.
+  number). Numeric ones are negative, so they never match a real record. In
+  `fake.list` arrays you key the rows yourself, so identical copies would
+  collide. `SkeletonList` keys its placeholder rows by index, so its one item
+  can keep a single id.
 
 ## Things to remove when converting
 
@@ -159,7 +168,8 @@ const { data: items, loading } = usePlaceholder(posts, POSTS_PLACEHOLDER);
 </Skeleton>
 ```
 
-Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there):
+Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid
+there; the bone layer is portaled out of the table):
 
 ```tsx
 <table>
@@ -171,8 +181,8 @@ Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there):
 ```
 
 The wrapper is `display: contents`, so it never changes flex/grid layout: put
-the list directly inside the flex/grid container. For a `<ul>`, use `as="ul"`
-and put margins/padding/grid styles on a parent (its own box is
+the list directly inside the flex/grid container. For a `<ul>`, use `as="ul"`,
+return `<li>`s, and put margins/padding/grid styles on a parent (its own box is
 `display: contents` too). Use `as="li"`/`as="span"` etc. only when HTML
 nesting rules require it.
 
@@ -269,7 +279,8 @@ HTML attributes (`aria-*`, `data-*`, `role`, `title`, handlers).
   `useSuspenseData(promise)`. It crosses a context, so TypeScript can't check
   it; a wrong shape crashes at runtime. Don't use it in new code. A call's
   own placeholder wins; nested boundaries: the nearest `fallback` wins.
-  Never pass an element.
+  Never pass an element. A `fake.list` array works as `fallback` for a list,
+  with the same caveat.
 - No placeholder and no `fallback`: the call suspends inside the skeleton,
   which drops the children up to the nearest `<Suspense>` around it (all of
   them if none). A dev warning says "has no placeholder": pass one. With `id`
@@ -342,21 +353,30 @@ export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspense
   return useSuspenseData(inSkeleton ? never : queryPromise(client, options), placeholder);
 }
 ```
-Lists: the fallback is one item repeated with `fake.list`, each copy with its
-own `id` so the rows' keys don't collide. The child maps the result; no
-`SkeletonList` here.
+
+### Lists under Suspense
+
+Repeat one item with `fake.list`, each copy with its own `id`, and pass it to
+the hook. The child maps the result. No `fallback`, no `SkeletonList`.
 
 ```tsx
 const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
 
-<SkeletonSuspense fallback={STORIES_PLACEHOLDER}>
+<SkeletonSuspense>
   <Stories promise={storiesPromise} />
 </SkeletonSuspense>
 
 function Stories({ promise }: { promise: Promise<Story[]> }) {
-  return useSuspenseData(promise).map((s) => <StoryCard key={s.id} story={s} />);
+  return useSuspenseData(promise, STORIES_PLACEHOLDER).map((s) => <StoryCard key={s.id} story={s} />);
 }
 ```
+
+- `fake.list` returns a plain `Story[]`, checked against the promise: a
+  missing or mistyped item field is a type error.
+- Each copy needs its own `id`: the child keys the rows, so identical copies
+  collide on their keys.
+- Keep the boundary's parent the flex/grid container (its wrapper is
+  `display: contents`).
 
 Limits:
 - Suspense remounts: the content mounts fresh when data arrives (state and
@@ -471,7 +491,7 @@ Static `opacity: 0` content gets no bones.
 Suspense above.
 
 `<SkeletonList>`: the same props as `<Skeleton>`, with `items` (instead of `data`),
-`placeholder` (one item) and `count` (default 3); children get `(item, index)`.
+`placeholder` (one item, or `() => item`) and `count` (default 3); children get `(item, index)`.
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 
@@ -494,7 +514,7 @@ theme for this.
 - [ ] Placeholder images use `fake.image(w, h)` (or the img has CSS width/height).
 - [ ] Early `return <Spinner/>`/`return null` for loading removed.
 - [ ] Old `*Skeleton` components deleted if unused.
-- [ ] Lists of same-shaped items use `SkeletonList` (one placeholder item + `count`).
+- [ ] Lists of same-shaped items: `SkeletonList` (one placeholder item + `count`); under Suspense, `useSuspenseData(promise, fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`.
 - [ ] Tables use `as="tbody"`.
 - [ ] Every `useEffect` in wrapped components (and their children) checked: outside-world effects return early when `useSkeleton()` is true.
 - [ ] Placeholder covers nested objects, nullable fields and anything parsed/formatted (`new Date(...)`, `.toFixed()`, `.map()` on arrays).
