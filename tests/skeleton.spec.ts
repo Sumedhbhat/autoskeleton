@@ -872,6 +872,53 @@ test("SkeletonList: table rows as tbody, layer portaled out of the table", async
   expect(errors).toEqual([]);
 });
 
+test("SkeletonList as='ul': HTML attributes on the list, one labelled status while loading", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-ul"]');
+  const list = root.locator('[data-section="inbox-list"]');
+  await expect(list).toHaveCount(1);
+  expect(await list.evaluate((el) => el.tagName)).toBe("UL");
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(list).toHaveAttribute("aria-label", "Inbox list");
+  await expect(list).toHaveAttribute("title", "Inbox list");
+  await expect(list).toHaveClass("inbox");
+  // `id` is the cache key, never the DOM id; SkeletonList's own props stay off the DOM.
+  await expect(list).not.toHaveAttribute("id");
+  for (const name of ["items", "count", "placeholder", "label"]) await expect(list).not.toHaveAttribute(name);
+  expect((await bones(page, "list-ul")).length).toBeGreaterThan(4);
+  const status = page.getByRole("status", { name: "Loading inbox list" });
+  await expect(status).toHaveCount(1);
+  expect(await status.evaluate((el) => el.closest("[inert]") === null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading inbox list");
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect(status).toHaveCount(0);
+  await expect(list).not.toHaveAttribute("aria-busy");
+  await expect(page.getByRole("list", { name: "Inbox list" })).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-list-ul") !== null)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList as='tbody': one labelled status, in the portaled layer", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-table"]');
+  await expect(root.locator('tbody[data-section="invoice-list"]')).toHaveAttribute("aria-busy", "true");
+  const status = page.getByRole("status", { name: "Loading invoice list" });
+  await expect(status).toHaveCount(1);
+  // Not inside the table (or the inert content): it travels with the layer.
+  expect(await status.evaluate((el) => el.closest("table") === null && el.closest("[inert]") === null)).toBe(true);
+  expect(await status.evaluate((el) => el.closest("[data-autoskeleton-layer]") !== null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading invoice list");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("tbody tr td:first-child")).toHaveText(["INV-001", "INV-002", "INV-003"]);
+  await expect(status).toHaveCount(0);
+  await expect(root.locator('tbody[data-section="invoice-list"]')).not.toHaveAttribute("aria-busy");
+  expect(errors).toEqual([]);
+});
+
 test("List under SkeletonSuspense: typed fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
   const errors = trackErrors(page);
   const warnings = trackWarnings(page);

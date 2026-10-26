@@ -330,14 +330,32 @@ function App() {
                   <th>Date</th>
                 </tr>
               </thead>
-              <SkeletonList as="tbody" items={loading ? undefined : listInvoices} placeholder={invoicePlaceholder} count={3}>
+              <SkeletonList
+                as="tbody"
+                items={loading ? undefined : listInvoices}
+                placeholder={invoicePlaceholder}
+                count={3}
+                label="Loading invoice list"
+                data-section="invoice-list"
+              >
                 {(r) => <InvoiceRow key={r.id} row={r} />}
               </SkeletonList>
             </table>
           </Section>
 
-          <Section id="list-ul" title="SkeletonList: as='ul'">
-            <SkeletonList as="ul" className="inbox" items={loading ? undefined : listMessages} placeholder={messagePlaceholder} count={4}>
+          <Section id="list-ul" title="SkeletonList: as='ul' with label, aria-label, data-*">
+            <SkeletonList
+              as="ul"
+              className="inbox"
+              id="demo-list-ul"
+              aria-label="Inbox list"
+              data-section="inbox-list"
+              title="Inbox list"
+              label="Loading inbox list"
+              items={loading ? undefined : listMessages}
+              placeholder={messagePlaceholder}
+              count={4}
+            >
               {(m) => <InboxItem key={m.id} message={m} />}
             </SkeletonList>
           </Section>

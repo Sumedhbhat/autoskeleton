@@ -1,5 +1,5 @@
 // Type-level tests, checked by `npm run typecheck` (never run or shipped).
-import { fake, useSuspenseData, type SkeletonSuspenseProps } from "autoskeleton";
+import { fake, useSuspenseData, type SkeletonListProps, type SkeletonSuspenseProps } from "autoskeleton";
 
 interface Comment {
   id: string;
@@ -87,3 +87,22 @@ export const suspenseAttributes: SkeletonSuspenseProps = {
 export const suspenseNumericId: SkeletonSuspenseProps = { id: 1 };
 // @ts-expect-error not an HTML attribute
 export const suspenseUnknown: SkeletonSuspenseProps = { notAnAttribute: true };
+
+// SkeletonList takes the wrapper's HTML attributes too; `id` stays the cache key.
+export const listAttributes: SkeletonListProps<Comment> = {
+  as: "ul",
+  id: "stories",
+  label: "Loading stories",
+  "aria-label": "Stories",
+  "data-section": "stories",
+  title: "Stories",
+  onClick: () => {},
+  items: null,
+  placeholder: COMMENT,
+  count: 5,
+  children: (c) => c.body,
+};
+// @ts-expect-error `id` is the cache key, a string
+export const listNumericId: SkeletonListProps<Comment> = { id: 1, placeholder: COMMENT, children: () => null };
+// @ts-expect-error not an HTML attribute
+export const listUnknown: SkeletonListProps<Comment> = { notAnAttribute: true, placeholder: COMMENT, children: () => null };

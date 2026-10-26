@@ -227,6 +227,23 @@ assert.equal(
 const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
 assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));
 assert.doesNotMatch(tableList, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
+// HTML attributes go to the list element (`id` stays the cache key), and
+// `label` is one named status outside it.
+const listAttrs = { as: "ul", id: "ssr-list-key", "aria-label": "Rows", "data-x": "1", title: "Rows", label: "Loading rows", placeholder: rowPh, count: 2 };
+const attrsList = renderToString(h(SkeletonList, listAttrs, li));
+assert.match(attrsList, /<ul aria-label="Rows" data-x="1" title="Rows" data-autoskeleton="" aria-busy="true"/);
+assert.equal(attrsList.match(/role="status"/g)?.length, 1);
+assert.match(attrsList, /<\/ul><span data-autoskeleton-sr="" role="status" aria-label="Loading rows">Loading rows<\/span>/);
+assert.doesNotMatch(attrsList, /id="ssr-list-key"| count=| items=| placeholder=| label=/);
+const attrsListReady = renderToString(h(SkeletonList, { ...listAttrs, items: [{ id: "a", title: "A" }] }, li));
+assert.match(attrsListReady, /<ul aria-label="Rows" data-x="1" title="Rows" data-autoskeleton="" style="display:contents"><li>A<\/li><\/ul>/);
+assert.doesNotMatch(attrsListReady, /role="status"| aria-busy=/);
+// Table: attributes on the tbody. The status goes in the layer, which is
+// portaled out of the table after mount (see the Playwright test), so the
+// server renders none, and never one inside the table.
+const labelledTable = renderToString(h("table", null, h(SkeletonList, { as: "tbody", label: "Loading rows", "data-x": "1", placeholder: rowPh, count: 2 }, tr)));
+assert.match(labelledTable, /<tbody data-x="1" data-autoskeleton="" aria-busy="true"/);
+assert.doesNotMatch(labelledTable, /role="status"/);
 // A list under SkeletonSuspense: one item repeated with fake.list (own id per
 // row, so keys don't collide), passed to useSuspenseData; the boundary has no
 // `fallback`. Placeholder rows in the shell, one layer, then the streamed rows.

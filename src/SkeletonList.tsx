@@ -1,11 +1,13 @@
 "use client";
 
 import { Fragment, type ReactElement, type ReactNode } from "react";
-import { Skeleton, type BaseProps } from "./Skeleton";
+import { Skeleton, type BaseProps, type SkeletonHTMLAttributes } from "./Skeleton";
 
 /**
  * Props for {@link SkeletonList}: every `<Skeleton>` prop, plus one
- * placeholder item, a `count` and the real `items`.
+ * placeholder item, a `count` and the real `items`. HTML attributes go to the
+ * wrapper element (the list itself with `as="ul"`); `id` is the cache key,
+ * never the DOM id.
  *
  * @example
  * ```tsx
@@ -21,7 +23,7 @@ import { Skeleton, type BaseProps } from "./Skeleton";
  * <StoryList items={stories} count={5} />
  * ```
  */
-export interface SkeletonListProps<T = unknown> extends Omit<BaseProps, "loading"> {
+export interface SkeletonListProps<T = unknown> extends Omit<BaseProps, "loading">, SkeletonHTMLAttributes {
   /** The real items. While null/undefined, `count` placeholder rows are rendered and measured. */
   items?: readonly T[] | null;
   /** One stand-in item (or `() => item`), repeated `count` times while loading. */
@@ -48,6 +50,8 @@ const placeholderLists = new WeakSet<readonly unknown[]>();
  * - The wrapper is `display: contents`: put it straight inside the flex or
  *   grid container. In a table use `as="tbody"`; for a list, `as="ul"` and
  *   return `<li>`s.
+ * - HTML attributes (`aria-label`, `data-*`, ...) go to the wrapper, and
+ *   `label` adds one `role="status"` while loading. `id` is the cache key.
  * - For load more, render a second `<SkeletonList loading>` for the next
  *   page only, below the loaded rows.
  * - Not for Suspense. There, pass
