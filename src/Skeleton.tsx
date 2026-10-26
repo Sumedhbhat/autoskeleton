@@ -99,12 +99,19 @@ const OWN_PROPS = new Set([
   // Internal to SkeletonSuspense.
   "handoff",
   "cacheWhenEmpty",
+  "suspenseContent",
 ]);
 
 function htmlAttributes(props: object): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) if (!OWN_PROPS.has(k)) out[k] = v;
   return out;
+}
+
+function withoutHtmlAttributes<P extends object>(props: P): P {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) if (OWN_PROPS.has(k)) out[k] = v;
+  return out as P;
 }
 
 interface BaseProps extends SkeletonConfig {
@@ -157,7 +164,7 @@ export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & Skeleton
  * </SkeletonSuspense>
  * ```
  */
-export interface SkeletonSuspenseProps extends SkeletonConfig {
+export interface SkeletonSuspenseProps extends SkeletonConfig, SkeletonHTMLAttributes {
   /**
    * Untyped shorthand: placeholder data (or `() => data`, called lazily) for
    * every `useSuspenseData(promise)` call below that passes no placeholder of
@@ -183,13 +190,26 @@ export interface SkeletonSuspenseProps extends SkeletonConfig {
    * children that suspend some other way).
    */
   id?: string;
-  /** Screen-reader text announced while suspended (role="status"). Off by default. */
+  /**
+   * Screen-reader text announced while suspended: one `role="status"` named by
+   * it, outside the inert skeleton. Off by default.
+   */
   label?: string;
-  /** Element used for both wrappers. They are `display: contents`. Default: "div". */
+  /**
+   * Element used for the skeleton's wrapper and the content's. They are
+   * `display: contents`. Default: "div". `className` and `style` go on both.
+   * The other HTML attributes (`aria-*`, `data-*`, `role`, ...) are on one
+   * element at a time: the skeleton's wrapper until the content first shows,
+   * then the content's, also while a refetch suspends again and React hides
+   * it next to the skeleton.
+   */
   as?: ElementType;
   className?: string;
   style?: CSSProperties;
 }
+
+/** What SkeletonSuspense hands to both of its views. */
+type SuspenseViewProps = Omit<SkeletonSuspenseProps, "fallback" | "children" | "name">;
 
 interface HandoffEntry {
   layout: BoneLayout;
@@ -198,27 +218,37 @@ interface HandoffEntry {
   y: number;
 }
 
-/** The last layout a Suspense fallback drew, kept for the content to fade out. */
+/** What a SkeletonSuspense's fallback and content share. */
 interface Handoff {
+  /** The last layout the fallback drew, kept for the content to fade out. */
   save(entry: HandoffEntry): void;
   peek(): HandoffEntry | null;
   clear(): void;
+  /** Whether the content is mounted (shown, or hidden by a refetch that suspended again). */
+  mounted(): boolean;
+  setMounted(mounted: boolean): void;
 }
 
 function createHandoff(): Handoff {
   let last: HandoffEntry | null = null;
+  let mounted = false;
   return {
     save: (entry) => void (last = entry),
     peek: () => last,
     clear: () => void (last = null),
+    mounted: () => mounted,
+    setMounted: (m) => void (mounted = m),
   };
 }
 
-type ViewProps<T> = (NodeProps | RenderProps<T>) & {
-  handoff?: Handoff;
-  /** Draw the `id`-cached layout whenever nothing is measured, even with children. */
-  cacheWhenEmpty?: boolean;
-};
+type ViewProps<T> = (NodeProps | RenderProps<T>) &
+  SkeletonHTMLAttributes & {
+    handoff?: Handoff;
+    /** Draw the `id`-cached layout whenever nothing is measured, even with children. */
+    cacheWhenEmpty?: boolean;
+    /** The content of a SkeletonSuspense: reports `handoff.mounted()`. */
+    suspenseContent?: boolean;
+  };
 
 const EMPTY: BoneLayout = { bones: [], width: 0, height: 0, left: 0, top: 0 };
 
@@ -365,7 +395,7 @@ export function SkeletonSuspense({ fallback, children, name, ...view }: Skeleton
   // React 18's <Suspense> ignores `name`.
   return (
     <Suspense fallback={skeleton} name={name}>
-      <SkeletonView {...view} loading={false} handoff={handoff}>
+      <SkeletonView {...view} loading={false} handoff={handoff} suspenseContent>
         {children}
       </SkeletonView>
     </Suspense>
@@ -379,7 +409,7 @@ function SuspenseFallback({
   children,
 }: {
   slot: PlaceholderSlot;
-  view: BaseProps;
+  view: SuspenseViewProps;
   handoff?: Handoff;
   children: ReactNode;
 }): ReactElement {
@@ -404,7 +434,9 @@ function SuspenseFallback({
   });
   return (
     <PlaceholderContext.Provider value={slot}>
-      <SkeletonView {...view} loading handoff={handoff} cacheWhenEmpty>
+      {/* The HTML attributes stay on the content once it has mounted, so a
+          refetch that suspends again doesn't put them on two elements. */}
+      <SkeletonView {...(handoff?.mounted() ? withoutHtmlAttributes(view) : view)} loading handoff={handoff} cacheWhenEmpty>
         {/* A child that suspends (no placeholder, useSuspenseQuery, lazy) would
             suspend the fallback too, and the boundary above would show
             instead. Contain it: the children up to the nearest <Suspense>
@@ -526,6 +558,18 @@ function SkeletonView<T>(props: ViewProps<T>): ReactElement {
     setEntering(true);
     // Runs on mount, and again when React reveals hidden content.
   }, [handoff]);
+
+  // Layout effects are cleaned up while Suspense hides the content, passive
+  // ones only when it unmounts: set on mount (and reveal), clear on unmount.
+  const suspenseContent = props.suspenseContent === true;
+  useIsoLayoutEffect(() => {
+    if (handoff && suspenseContent) handoff.setMounted(true);
+  }, [handoff, suspenseContent]);
+  useEffect(() => {
+    if (!handoff || !suspenseContent) return;
+    handoff.setMounted(true);
+    return () => handoff.setMounted(false);
+  }, [handoff, suspenseContent]);
 
   useIsoLayoutEffect(() => {
     if (!entry || !entering) return;

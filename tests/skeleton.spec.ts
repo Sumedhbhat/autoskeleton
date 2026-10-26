@@ -87,6 +87,7 @@ const GEOMETRY_FIXTURES = [
   "skeleton-suspense",
   "suspense-shorthand",
   "suspense-manual",
+  "suspense-attrs",
 ];
 
 for (const fixture of GEOMETRY_FIXTURES) {
@@ -697,4 +698,70 @@ test("SkeletonSuspense: with no placeholders, id draws the cached layout on refe
   await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
   expect(warnings).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense: HTML attributes on one wrapper at a time, one labelled status while suspended", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-attrs"]');
+  const tagged = root.locator('[data-section="suspended"]');
+  // Suspended: only the skeleton's wrapper exists, and it has them.
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).toHaveAttribute("aria-busy", "true");
+  await expect(tagged).toHaveAttribute("aria-label", "Suspended mail");
+  await expect(tagged).toHaveAttribute("title", "Suspended mail");
+  await expect(tagged).toHaveClass("inbox");
+  await expect(tagged).not.toHaveAttribute("id");
+  expect(await tagged.evaluate((el) => el.tagName)).toBe("UL");
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+  // One status, named, outside the inert skeleton.
+  const status = page.getByRole("status", { name: "Loading suspended mail" });
+  await expect(status).toHaveCount(1);
+  expect(await status.evaluate((el) => el.closest("[inert]") === null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading suspended mail");
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect(status).toHaveCount(0);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).not.toHaveAttribute("aria-busy");
+  await expect(page.getByRole("list", { name: "Suspended mail" })).toHaveCount(1);
+
+  // A refetch suspends again: React keeps the content mounted but hidden next
+  // to the skeleton, and the attributes stay on it, so they're not doubled.
+  await page.evaluate(() => window.__setLoading(true));
+  const skeleton = root.locator('[data-autoskeleton][aria-busy="true"]');
+  await expect(skeleton).toHaveCount(1);
+  await expect(skeleton).not.toHaveAttribute("data-section");
+  await expect(skeleton).toHaveClass("inbox");
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+  await expect(status).toHaveCount(1);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).toBeHidden();
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(status).toHaveCount(0);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).not.toHaveAttribute("aria-busy");
+  await expect(tagged).toHaveAttribute("aria-label", "Suspended mail");
+  await expect(root.locator("li strong").first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense with id: placeholders culled off-screen don't fall back to the cached layout", async ({ page }) => {
+  await page.goto("/?loading=0");
+  const root = page.locator('[data-fixture="suspense-attrs"]');
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-suspense-attrs") !== null)).toBe(true);
+  const loadedHeight = await root.evaluate((el) => el.getBoundingClientRect().height);
+  // Suspended, then scrolled far past it: its placeholder bones are culled,
+  // which isn't "nothing to measure", so no cached layout and spacer are added.
+  await page.goto("/");
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  await page.reload(); // the restored scroll position is far below the fixture
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(2000);
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
+  expect(Math.abs((await root.evaluate((el) => el.getBoundingClientRect().height)) - loadedHeight)).toBeLessThan(1);
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
 });

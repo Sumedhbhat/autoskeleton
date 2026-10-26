@@ -116,6 +116,19 @@ const readyHtml = renderToString(suspense(ready));
 assert.match(readyHtml, /<div data-autoskeleton="" style="display:contents"><section data-skeleton-render="false"><ul><li>Done<\/li>/);
 assert.ok(!readyHtml.includes(fake.sentence(5)));
 
+// SkeletonSuspense forwards HTML attributes (not `id`) and renders `label` as
+// one named status, outside the inert skeleton.
+const Items = ({ promise }) => useSuspenseData(promise, postsPh).map((p, i) => h("li", { key: i }, p.title));
+const attrsProps = { as: "ul", id: "ssr-suspense-key", "aria-label": "Posts", "data-x": "1", label: "Loading posts" };
+const attrsFallback = renderToString(h(SkeletonSuspense, attrsProps, h(Items, { promise: new Promise(() => {}) })));
+assert.match(attrsFallback, /<ul aria-label="Posts" data-x="1" data-autoskeleton="" aria-busy="true"/);
+assert.equal(attrsFallback.match(/role="status"/g)?.length, 1);
+assert.match(attrsFallback, /<\/ul><span data-autoskeleton-sr="" role="status" aria-label="Loading posts">Loading posts<\/span>/);
+assert.doesNotMatch(attrsFallback, /id="ssr-suspense-key"/);
+const attrsReady = renderToString(h(SkeletonSuspense, attrsProps, h(Items, { promise: ready })));
+assert.match(attrsReady, /<ul aria-label="Posts" data-x="1" data-autoskeleton="" style="display:contents"><li>Done<\/li>/);
+assert.doesNotMatch(attrsReady, /role="status"| aria-busy=/);
+
 /** Stream a tree; resolve `release` after the shell is out. */
 function stream(tree, release) {
   return new Promise((resolve) => {

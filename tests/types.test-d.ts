@@ -1,5 +1,5 @@
 // Type-level tests, checked by `npm run typecheck` (never run or shipped).
-import { useSuspenseData } from "autoskeleton";
+import { useSuspenseData, type SkeletonSuspenseProps } from "autoskeleton";
 
 interface Comment {
   id: string;
@@ -51,3 +51,19 @@ export function Rejected() {
   // @ts-expect-error not a promise
   useSuspenseData(COMMENTS, COMMENTS);
 }
+
+// SkeletonSuspense takes the wrapper's HTML attributes, like <Skeleton>.
+export const suspenseAttributes: SkeletonSuspenseProps = {
+  as: "ul",
+  id: "posts",
+  label: "Loading posts",
+  "aria-label": "Posts",
+  "data-section": "posts",
+  role: "list",
+  title: "Posts",
+  onClick: () => {},
+};
+// @ts-expect-error `id` is the cache key, a string
+export const suspenseNumericId: SkeletonSuspenseProps = { id: 1 };
+// @ts-expect-error not an HTML attribute
+export const suspenseUnknown: SkeletonSuspenseProps = { notAnAttribute: true };

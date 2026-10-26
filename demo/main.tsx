@@ -1,4 +1,13 @@
-import { Component, StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  Component,
+  StrictMode,
+  Suspense,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   Skeleton,
@@ -254,6 +263,10 @@ function App() {
 
           <Section id="suspense-manual" title="useSuspenseData outside a boundary (plain Suspense)">
             <ManualSuspenseDemo />
+          </Section>
+
+          <Section id="suspense-attrs" title="SkeletonSuspense as='ul' with label, aria-label, data-*" wide>
+            <SuspenseAttrsDemo />
           </Section>
 
           {params.has("missing") ? (
@@ -626,6 +639,34 @@ function IgnoredDemo() {
   return (
     <SkeletonSuspense fallback={userPlaceholder}>
       <SelfLoadingUser />
+    </SkeletonSuspense>
+  );
+}
+
+// HTML attributes and `label` on a SkeletonSuspense: the attributes sit on the
+// wrapper on screen, the label is one status outside the inert skeleton.
+function SuspendingMail({ promise }: { promise: Promise<typeof realInbox> }) {
+  const mail = useSuspenseData(promise, inboxPlaceholder);
+  return mail.slice(0, 3).map((m) => (
+    <li key={m.id}>
+      <strong>{m.from}</strong>
+      <span>{m.subject}</span>
+    </li>
+  ));
+}
+function SuspenseAttrsDemo() {
+  const { promise } = useDemoPromise(SAME ? inboxPlaceholder : realInbox);
+  return (
+    <SkeletonSuspense
+      as="ul"
+      className="inbox"
+      id="demo-suspense-attrs"
+      aria-label="Suspended mail"
+      data-section="suspended"
+      title="Suspended mail"
+      label="Loading suspended mail"
+    >
+      <SuspendingMail promise={promise} />
     </SkeletonSuspense>
   );
 }
