@@ -270,9 +270,8 @@ array to `useSuspenseData`. The child maps whatever it returns: placeholder
 rows in the skeleton, then the real ones. No `fallback` needed.
 
 ```tsx
+// For numeric ids (`id: number`, e.g. Hacker News items) use fake.id(i, "number").
 const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
-// Numeric ids (`id: number`, e.g. Hacker News items):
-const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i, "number") }));
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />

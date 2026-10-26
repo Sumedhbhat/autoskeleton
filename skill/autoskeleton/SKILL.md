@@ -380,9 +380,8 @@ Repeat one item with `fake.list`, each copy with its own `id`, and pass it to
 the hook. The child maps the result. No `fallback`, no `SkeletonList`.
 
 ```tsx
+// For numeric ids (`id: number`, e.g. Hacker News items) use fake.id(i, "number").
 const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
-// `id: number` (e.g. Hacker News items):
-const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i, "number") }));
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />
