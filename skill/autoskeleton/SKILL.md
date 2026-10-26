@@ -199,7 +199,9 @@ function Comments({ promise }: { promise: Promise<Comment[]> }) {
 
 `useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: T | (() => T)): T`:
 - Inside the skeleton (the boundary's fallback, which renders the same
-  children again) it returns `placeholder` and never suspends. `T` is inferred
+  children again) it returns `placeholder`, or the boundary's `fallback` if
+  the call has none, without suspending. With neither, it suspends (see the
+  missing-placeholder note below). `T` is inferred
   from the promise only, so a placeholder of the wrong shape is a type error.
   Fix the placeholder, never cast it.
 - Everywhere else (the real children, or no `SkeletonSuspense` above) it is

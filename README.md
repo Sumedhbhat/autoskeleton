@@ -191,7 +191,8 @@ function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: T | (() => T)
 ```
 
 - **Inside the skeleton** (a `SkeletonSuspense` fallback) it returns
-  `placeholder` and never suspends. `T` is inferred from the promise only
+  `placeholder` (or the boundary's `fallback` if the call has none) without
+  suspending. With neither, it suspends; see "No placeholder, warnings, errors" below. `T` is inferred from the promise only
   (the parameter is `NoInfer<T>`), so a wider or different placeholder is an
   error instead of widening `T`. Needs TypeScript 5.4 or later.
 - **Everywhere else** (the real content, or no `SkeletonSuspense` above) it is
