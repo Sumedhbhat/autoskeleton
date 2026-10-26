@@ -266,7 +266,7 @@ skeleton. Copy it into the app; autoskeleton doesn't depend on TanStack. On
 older 5.x without `queryClient.query`, use `queryClient.fetchQuery`.
 
 ```tsx
-import { hashKey, useQuery, useQueryClient, type QueryClient, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient, type QueryClient, type QueryKey, type UseSuspenseQueryOptions } from "@tanstack/react-query";
 import { useSkeleton, useSuspenseData } from "autoskeleton";
 
 type Entry = { promise: Promise<unknown>; data?: unknown; failed?: boolean };
@@ -274,7 +274,7 @@ const entries = new WeakMap<QueryClient, Map<string, Entry>>();
 const never = new Promise<never>(() => {});
 
 /** The query's data as a promise, the same object until the data changes. */
-function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseQueryOptions<T, Error, T, K>): Promise<T> {
+function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSuspenseQueryOptions<T, Error, T, K>): Promise<T> {
   let byKey = entries.get(client);
   if (!byKey) entries.set(client, (byKey = new Map()));
   const key = hashKey(options.queryKey);
@@ -282,8 +282,10 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseQu
   const entry = byKey.get(key);
   if (entry && !entry.failed && (data === undefined || entry.data === data)) return entry.promise as Promise<T>;
   if (data !== undefined) {
-    // Cached: marked fulfilled, so it renders without suspending.
-    const promise = Object.assign(Promise.resolve(data), { status: "fulfilled", value: data });
+    // Cached: marked fulfilled, so it renders without suspending. `select` is
+    // applied here as client.query() applies it on a fetch.
+    const value = options.select ? options.select(data) : data;
+    const promise = Object.assign(Promise.resolve(value), { status: "fulfilled", value });
     byKey.set(key, { promise, data });
     return promise;
   }
@@ -298,7 +300,8 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseQu
 }
 
 /** useSuspenseQuery for <SkeletonSuspense>: the placeholder in the skeleton, the data after. */
-export function useSuspenseQueryData<T, K extends QueryKey>(options: UseQueryOptions<T, Error, T, K>, placeholder: T): T {
+// Same options as useSuspenseQuery, so no `enabled`: a suspending query can't be disabled.
+export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspenseQueryOptions<T, Error, T, K>, placeholder: T): T {
   const client = useQueryClient();
   const inSkeleton = useSkeleton();
   useQuery({ ...options, enabled: !inSkeleton }); // refetches and cache updates re-render
