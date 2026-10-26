@@ -91,12 +91,13 @@ function date(): string {
 /**
  * A unique, stable placeholder id: `"skeleton-<seed>"`, or with `"number"`
  * a negative number (`-1 - seed`) that can't collide with real (positive)
- * numeric ids.
+ * numeric ids. Seeds are indices: the sign and any fraction are dropped, so
+ * the numeric id is always a negative integer.
  */
 function id(seed?: number): string;
 function id(seed: number, type: "number"): number;
 function id(seed = 0, type?: "number"): string | number {
-  return type === "number" ? -1 - seed : `skeleton-${seed}`;
+  return type === "number" ? -1 - (Math.abs(Math.trunc(seed)) || 0) : `skeleton-${seed}`;
 }
 
 export const fake = { text, sentence, paragraph, name, email, number, image, list, date, id };
