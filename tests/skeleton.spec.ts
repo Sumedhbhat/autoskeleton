@@ -772,14 +772,17 @@ test("SkeletonSuspense with id: placeholders culled off-screen don't fall back t
   await expect(root.locator("li strong").first()).toHaveText("Sender 0");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-suspense-attrs") !== null)).toBe(true);
   const loadedHeight = await root.evaluate((el) => el.getBoundingClientRect().height);
-  // Suspended, then scrolled far past it: its placeholder bones are culled,
-  // which isn't "nothing to measure", so no cached layout and spacer are added.
+  // Suspended, then re-measured while scrolled far past it: its placeholder
+  // bones are culled, which isn't "nothing to measure", so no cached layout
+  // and spacer are added. Scroll explicitly and resize to force the re-measure
+  // (relying on reload's scroll restoration was flaky under load).
   await page.goto("/");
-  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
-  await page.reload(); // the restored scroll position is far below the fixture
   await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
-  await page.waitForTimeout(300);
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
   expect(await page.evaluate(() => scrollY)).toBeGreaterThan(2000);
+  const size = page.viewportSize()!;
+  await page.setViewportSize({ width: size.width, height: size.height - 1 });
+  await page.waitForTimeout(300);
   await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
   expect(Math.abs((await root.evaluate((el) => el.getBoundingClientRect().height)) - loadedHeight)).toBeLessThan(1);
   expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
