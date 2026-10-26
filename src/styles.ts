@@ -9,12 +9,29 @@
  *   --autoskeleton-text-radius text bar radius
  *   --autoskeleton-duration    animation duration
  */
+const BONE = "var(--autoskeleton-color,rgba(128,128,128,.18))";
+const PENDING = "[data-autoskeleton][data-pending]";
+const MEDIA = "img,svg,video,canvas,iframe,input,textarea,select,button,progress,meter,[role=img]";
+/**
+ * Before hydration nothing is measured, so CSS stands in for the measured
+ * skeleton: a box holding only text and inline formatting (avatar with
+ * initials, chip, badge, link button, line of text) becomes one bone-coloured
+ * block with its own radius, like the measured skeleton's blocks; its
+ * descendants lose their chrome so no pill shows inside it. Boxes with block
+ * children (cards) keep their background and border as surfaces.
+ */
+const LEAF_BOX =
+  ":is(div,p,h1,h2,h3,h4,h5,h6,span,a,label,small,strong,b,i,em,mark,code,abbr,time,kbd,figcaption,blockquote,dt,dd)" +
+  ":not(:has(:not(span,a,b,i,em,strong,small,mark,code,abbr,time,kbd,sub,sup,s,u,q,br,wbr,svg,svg *)))";
+
 export const autoskeletonCss = `
 [data-autoskeleton][aria-busy="true"]{visibility:hidden}
 [data-autoskeleton][data-pending]{visibility:visible!important}
 [data-autoskeleton][data-pending] *{color:transparent!important;text-decoration-color:transparent!important;visibility:visible!important}
-[data-autoskeleton][data-pending] :where(img,svg,video,canvas,iframe,input,textarea,select,button,progress,meter,[role=img]){background:var(--autoskeleton-color,rgba(128,128,128,.18))!important;border-color:transparent!important;object-position:-99999px 0;fill:transparent;stroke:transparent}
-[data-autoskeleton][data-pending] :where(p,h1,h2,h3,h4,h5,h6,span,a,label,small,strong,b,em,code,figcaption,blockquote):not(:has(*)){background:var(--autoskeleton-color,rgba(128,128,128,.18))!important;border-radius:var(--autoskeleton-text-radius,4px)}
+${PENDING} :where(${MEDIA}){background:${BONE}!important;border-color:transparent!important;box-shadow:none!important;object-position:-99999px 0;fill:transparent;stroke:transparent}
+${PENDING} :where(${LEAF_BOX}){background:${BONE}!important;border-color:transparent!important;box-shadow:none!important}
+:where(${PENDING} ${LEAF_BOX}){border-radius:var(--autoskeleton-text-radius,4px)}
+${PENDING} :where(${MEDIA},${LEAF_BOX}) *{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
 [data-autoskeleton][aria-busy="true"] [data-skeleton="keep"]{visibility:visible}
 [data-autoskeleton-layer]{display:block;position:absolute;width:0;height:0;overflow:visible;visibility:visible;pointer-events:none;z-index:var(--autoskeleton-z,1);transition:opacity var(--autoskeleton-fade,200ms) ease}
 [data-autoskeleton-layer][data-exiting]{opacity:0}

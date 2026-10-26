@@ -235,7 +235,10 @@ with CSS variables on any ancestor: `--autoskeleton-color`,
 
 On the server, content is hidden with an inline style (so placeholder text
 never flashes before CSS loads) and a CSS-only approximation shows until
-hydration measures the real thing.
+hydration measures the real thing: text is transparent; media, controls and
+boxes holding only text (avatars with initials, chips, badges, lines of text)
+become bone-coloured blocks with their own radius, brand colours, borders and
+shadows removed; boxes with block children (cards) keep their surface.
 
 ### Performance
 
