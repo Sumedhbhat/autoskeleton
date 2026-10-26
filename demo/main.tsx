@@ -310,6 +310,25 @@ function App() {
             </div>
           </Section>
 
+          <Section id="attrs" title="as='ul' with aria-label, data-*, title">
+            <Skeleton
+              as="ul"
+              className="inbox"
+              id="demo-attrs"
+              aria-label="Recent mail"
+              data-section="recent"
+              title="Recent mail"
+              loading={loading}
+            >
+              {(inbox ?? inboxPlaceholder).slice(0, 3).map((m) => (
+                <li key={m.id}>
+                  <strong>{m.from}</strong>
+                  <span>{m.subject}</span>
+                </li>
+              ))}
+            </Skeleton>
+          </Section>
+
           <Section id="hero" title="Centered hero + keep">
             <Skeleton loading={loading}>
               <div className="hero-wrap">

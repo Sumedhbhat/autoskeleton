@@ -374,3 +374,22 @@ for (const [os, app, alpha] of [
     expect(sweep).toContain(`rgba(255, 255, 255, ${alpha})`);
   });
 }
+
+test("HTML attributes are forwarded to the wrapper; id stays the cache key", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1");
+  const list = page.locator('[data-fixture="attrs"] ul[data-autoskeleton]');
+  await expect(list).toHaveAttribute("aria-label", "Recent mail");
+  await expect(list).toHaveAttribute("data-section", "recent");
+  await expect(list).toHaveAttribute("title", "Recent mail");
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(list).not.toHaveAttribute("id");
+  expect((await bones(page, "attrs")).length).toBeGreaterThan(3);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(list).not.toHaveAttribute("aria-busy");
+  await expect(list).toHaveAttribute("aria-label", "Recent mail");
+  await expect(page.getByRole("list", { name: "Recent mail" })).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-attrs") !== null)).toBe(true);
+  expect(errors).toEqual([]);
+});

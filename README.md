@@ -120,6 +120,15 @@ Inside a table, render it as the `tbody` (`rows` from `usePlaceholder`):
 </table>
 ```
 
+When the wrapper is the list itself, label it like any element: HTML
+attributes go to the wrapper.
+
+```tsx
+<Skeleton as="ul" aria-label="Stories" loading={loading}>
+  {stories.map((s) => <Story key={s.id} story={s} />)}
+</Skeleton>
+```
+
 ### Refetching, "load more" and Suspense
 
 ```tsx
@@ -188,7 +197,7 @@ focused.
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
 | `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. Or use `usePlaceholder` and pass only `loading`. |
-| `id` | | Cache key for remembered layouts. |
+| `id` | | Cache key for remembered layouts. Not the DOM `id` (never forwarded). |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer"`, `"pulse"` or `"none"`. Reduced motion is respected. |
 | `as` | `"div"` | Wrapper element (always `display: contents`). |
@@ -197,6 +206,10 @@ focused.
 | `textHeight` | `0.72` | Text bar height as a fraction of the font size. |
 | `surfaces` | `true` | Copy card backgrounds, borders and shadows. |
 | `persist` | `true` | Save `id` layouts to localStorage. |
+| `className`, `style`, `aria-*`, `data-*`, `role`, `title`, event handlers… | | Forwarded to the wrapper element (`SkeletonHTMLAttributes`). |
+
+`id` is the cache key, so it is never forwarded as the wrapper's DOM `id`.
+If you need one, put it on an element inside, or wrap the skeleton.
 
 `<SkeletonProvider>` takes the same options as defaults for a subtree.
 

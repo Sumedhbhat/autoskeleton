@@ -150,6 +150,11 @@ Inside a table, render the wrapper as the `tbody` (a `<div>` isn't valid there;
 The wrapper is `display: contents`, so it never changes flex/grid layout. Use
 `as="li"`/`as="span"` etc. only when HTML nesting rules require it.
 
+HTML attributes (`aria-*`, `data-*`, `role`, `title`, handlers) go to the
+wrapper element, so `<Skeleton as="ul" aria-label="Stories" loading={loading}>`
+works. `id` is the cache key and is never the DOM id; put a DOM id on an
+element inside.
+
 ## Refetching, pagination, Suspense
 
 **Refetch (filters, search, pagination by page):** show the skeleton over the
@@ -282,7 +287,7 @@ they end. Static `opacity: 0` content gets no bones.
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
 | `data` / `placeholder` / children fn | | Render-prop form. `placeholder` may be a value or `() => value`. With `usePlaceholder`, pass only `loading`. |
-| `id` | | Cache key for remembered layouts. |
+| `id` | | Cache key for remembered layouts. Not the DOM `id` (never forwarded). |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer" \| "pulse" \| "none"`. |
 | `as` | `"div"` | Wrapper element (always `display: contents`). |
@@ -291,6 +296,7 @@ they end. Static `opacity: 0` content gets no bones.
 | `textHeight` | `0.72` | Text bar height as a fraction of font size. |
 | `surfaces` | `true` | Copy card backgrounds/borders. |
 | `persist` | `true` | Save `id` layouts to localStorage. |
+| other HTML attributes | | `aria-*`, `data-*`, `role`, `className`, `style`… forwarded to the wrapper. Not `id`. |
 
 `<SkeletonProvider animation="pulse" fade={0}>` sets defaults for a subtree.
 

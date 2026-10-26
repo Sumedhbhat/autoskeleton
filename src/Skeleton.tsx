@@ -12,6 +12,7 @@ import {
   useState,
   type CSSProperties,
   type ElementType,
+  type HTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -62,6 +63,44 @@ export function useSkeleton(): boolean {
   return useContext(LoadingContext);
 }
 
+/**
+ * Standard HTML attributes (`aria-*`, `data-*`, `role`, `title`, event
+ * handlers, ...) forwarded to the wrapper element. Not forwarded: `id` (the
+ * cache key), `children`, `nonce` (used for the injected <style>) and
+ * `inert`/`aria-busy` while loading (set by the skeleton).
+ */
+export type SkeletonHTMLAttributes = Omit<HTMLAttributes<HTMLElement>, "id" | "children" | "nonce" | "inert" | "className" | "style"> & {
+  [data: `data-${string}`]: string | number | boolean | undefined;
+};
+
+/** Props that configure the skeleton; everything else goes to the wrapper element. */
+const OWN_PROPS = new Set([
+  "loading",
+  "id",
+  "fallback",
+  "label",
+  "as",
+  "className",
+  "style",
+  "children",
+  "data",
+  "placeholder",
+  "animation",
+  "textHeight",
+  "surfaces",
+  "fade",
+  "persist",
+  "injectStyles",
+  "nonce",
+  "inert",
+]);
+
+function htmlAttributes(props: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) if (!OWN_PROPS.has(k)) out[k] = v;
+  return out;
+}
+
 interface BaseProps extends SkeletonConfig {
   /**
    * Show the skeleton instead of the content. Optional when you pass `data`:
@@ -72,6 +111,7 @@ interface BaseProps extends SkeletonConfig {
    * Cache key. The measured layout is remembered (memory + localStorage), so
    * the skeleton can still be drawn when the children can't render at all
    * while loading (no placeholder data, first paint before data exists).
+   * Not forwarded as the wrapper's DOM `id`.
    */
   id?: string;
   /** Rendered (visibly) when there's nothing to measure and nothing cached. */
@@ -98,7 +138,7 @@ interface RenderProps<T> extends BaseProps {
   children: (data: T) => ReactNode;
 }
 
-export type SkeletonProps<T = unknown> = NodeProps | RenderProps<T>;
+export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & SkeletonHTMLAttributes;
 
 const EMPTY: BoneLayout = { bones: [], width: 0, height: 0, left: 0, top: 0 };
 
@@ -409,12 +449,14 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
   ) : null;
 
   const Wrapper = props.as ?? "div";
+  const attrs = htmlAttributes(props);
   return (
     <LoadingContext.Provider value={ancestorLoading || loading}>
       <Wrapper
+        {...attrs}
         ref={wrapperRef}
         data-autoskeleton=""
-        aria-busy={loading ? "true" : undefined}
+        aria-busy={loading ? "true" : attrs["aria-busy"]}
         // Not measured yet (server render, before hydration): CSS-only approximation.
         data-pending={showBones && !measured ? "" : undefined}
         className={props.className}

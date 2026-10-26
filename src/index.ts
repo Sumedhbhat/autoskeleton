@@ -1,5 +1,5 @@
 export { Skeleton, SkeletonProvider, useSkeleton } from "./Skeleton";
-export type { SkeletonProps, SkeletonConfig, SkeletonAnimation } from "./Skeleton";
+export type { SkeletonProps, SkeletonConfig, SkeletonAnimation, SkeletonHTMLAttributes } from "./Skeleton";
 export { fake } from "./placeholder";
 export { usePlaceholder } from "./usePlaceholder";
 export type { PlaceholderResult, UsePlaceholderOptions } from "./usePlaceholder";

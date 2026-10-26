@@ -22,6 +22,7 @@ const html = renderToString(
     h(Profile, { data: undefined }),
     h(Profile, { data: { user: { name: "Loaded" } } }),
     h("table", null, h(Skeleton, { as: "tbody", loading: true }, h("tr", null, h("td", null, "x")))),
+    h(Skeleton, { as: "ul", id: "attrs-key", loading: true, "aria-label": "Posts", "data-x": "1", role: "list" }, h("li", null, "x")),
   ),
 );
 
@@ -35,6 +36,9 @@ assert.match(html, /<div data-autoskeleton="" style="display:contents"><b>Real<\
 assert.match(html, new RegExp(`aria-busy="true"[^>]*><i>${fake.name(7)}</i>`));
 assert.match(html, /<div data-autoskeleton="" style="display:contents"><i>Loaded<\/i>/);
 assert.equal(lazyCalls, 1);
+// HTML attributes reach the wrapper; `id` is the cache key, not a DOM id.
+assert.match(html, /<ul aria-label="Posts" data-x="1" role="list" data-autoskeleton=""/);
+assert.doesNotMatch(html, /id="attrs-key"/);
 // No layer element inside table internals.
 assert.doesNotMatch(html, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
 // React 19 hoists the stylesheet exactly once.
