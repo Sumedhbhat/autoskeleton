@@ -359,3 +359,18 @@ test("fake.id: string by default, negative number on request", () => {
   expect(new Set(ids).size).toBe(50);
   expect(ids.every((x) => Number.isInteger(x) && x < 0)).toBe(true);
 });
+
+for (const [os, app, alpha] of [
+  ["light", "dark", "0.07"],
+  ["dark", "light", "0.45"],
+] as const) {
+  test(`shimmer follows the app's color-scheme (${app} app, ${os} OS)`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: os });
+    await page.goto(`/?same=1${app === "dark" ? "&dark=1" : ""}`);
+    const sweep = await page
+      .locator('[data-fixture="user"] [data-bone="text"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::after").backgroundImage);
+    expect(sweep).toContain(`rgba(255, 255, 255, ${alpha})`);
+  });
+}

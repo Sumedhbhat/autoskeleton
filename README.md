@@ -198,10 +198,26 @@ focused.
 | `surfaces` | `true` | Copy card backgrounds, borders and shadows. |
 | `persist` | `true` | Save `id` layouts to localStorage. |
 
-`<SkeletonProvider>` takes the same options as defaults for a subtree. Theme
-with CSS variables on any ancestor: `--autoskeleton-color`,
+`<SkeletonProvider>` takes the same options as defaults for a subtree.
+
+### Theming
+
+Theme with CSS variables on any ancestor: `--autoskeleton-color`,
 `--autoskeleton-highlight`, `--autoskeleton-radius`,
 `--autoskeleton-text-radius`, `--autoskeleton-duration`.
+
+The default bone colour is a translucent grey that works on light and dark
+backgrounds. The default shimmer highlight follows the inherited
+`color-scheme` (via `light-dark()`), so a class or `data-theme` toggle works
+as long as it sets `color-scheme`:
+
+```css
+html.dark { color-scheme: dark; } /* or [data-theme="dark"] */
+```
+
+Most theme libraries set it already; Tailwind's `dark:` class alone doesn't.
+Without a `color-scheme` the page is light and so is the highlight. Browsers
+without `light-dark()` follow `prefers-color-scheme` instead.
 
 ## How it works
 

@@ -298,6 +298,13 @@ Theme with CSS variables on any ancestor: `--autoskeleton-color`,
 `--autoskeleton-highlight`, `--autoskeleton-radius`,
 `--autoskeleton-text-radius`, `--autoskeleton-duration`.
 
+Dark mode: the default highlight follows the inherited `color-scheme`
+(`light-dark()`), not the OS setting. If the app has its own theme toggle
+(class or `data-theme` on `<html>`), make sure the dark theme sets
+`color-scheme: dark` (e.g. `html.dark { color-scheme: dark; }`); Tailwind's
+`dark:` class alone doesn't. Don't hardcode `--autoskeleton-highlight` per
+theme for this.
+
 ## Checklist
 
 - [ ] Real component wrapped in `<Skeleton>`; no hand-written skeleton markup.

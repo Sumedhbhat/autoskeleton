@@ -8,6 +8,10 @@
  *   --autoskeleton-radius      block radius fallback
  *   --autoskeleton-text-radius text bar radius
  *   --autoskeleton-duration    animation duration
+ *
+ * The default highlight follows the inherited `color-scheme` (light-dark()),
+ * so an app's own theme toggle wins over the OS preference. Browsers without
+ * light-dark() fall back to prefers-color-scheme.
  */
 const BONE = "var(--autoskeleton-color,rgba(128,128,128,.18))";
 const PENDING = "[data-autoskeleton][data-pending]";
@@ -48,6 +52,7 @@ ${PENDING} :where(${MEDIA},${LEAF_BOX}) *{background:transparent!important;borde
 @keyframes autoskeleton-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 [data-autoskeleton-layer]{--sk-hl:rgba(255,255,255,.45)}
 @media (prefers-color-scheme:dark){[data-autoskeleton-layer]{--sk-hl:rgba(255,255,255,.07)}}
+@supports (color:light-dark(#000,#fff)){[data-autoskeleton-layer]{--sk-hl:light-dark(rgba(255,255,255,.45),rgba(255,255,255,.07))}}
 @media (prefers-reduced-motion:reduce){[data-autoskeleton-layer] [data-bone]::after{content:none}[data-autoskeleton-layer] [data-bone]{animation:none!important}}
 `.trim();
 
