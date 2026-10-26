@@ -182,7 +182,9 @@ use `usePlaceholder`.
 | `fallback` | Optional, **untyped** placeholder data (or `() => data`) for calls that pass none. See below. Never an element. |
 | `id` | Cache key. The content's layout is remembered and drawn when the skeleton measures nothing. |
 | `name` | Passed to `<Suspense name>` (React 19 DevTools). |
-| `animation`, `as`, `fade`, `label`, `textHeight`, `surfaces`, `persist`, `className`, `style` | As on `<Skeleton>`. |
+| `label` | Screen-reader text while suspended: one `role="status"` named by it, outside the inert skeleton. None once the content shows. |
+| `aria-*`, `data-*`, `role`, `title`, event handlers… | Forwarded to the wrapper (`SkeletonHTMLAttributes`), on one element at a time: the skeleton's until the content first shows, then the content's (also while a refetch hides it). `id` is never forwarded. |
+| `animation`, `as`, `fade`, `textHeight`, `surfaces`, `persist`, `className`, `style` | As on `<Skeleton>`. `className` and `style` go on both wrappers. |
 
 #### `useSuspenseData`
 
@@ -199,6 +201,11 @@ function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: T | (() => T)
   `use(promise)`: it suspends until the promise settles, returns the value,
   and throws a rejection to the nearest error boundary. `placeholder` is
   ignored.
+- A promise that is already settled and says so (`status: "fulfilled"` with
+  `value`, or `"rejected"` with `reason`, the `use()` convention) is read
+  synchronously, without `use()`: no suspense, no skeleton, the content is in
+  the first commit, also inside `act()` (React Testing Library), on React 18
+  and 19. On React 18 a promise seen settling before is read the same way.
 - `placeholder` can be `() => value`, called on each skeleton render. Keep
   it pure and cheap, or hoist the value to module scope.
 - Any number of calls can sit under one boundary, each with its own
@@ -239,15 +246,64 @@ own placeholder wins over `fallback`; with nested boundaries, the nearest
 - Only `useSuspenseData` sees the placeholder. A component that suspends some
   other way (`useSuspenseQuery`, `lazy`, `use()` directly) suspends in the
   skeleton too, and drops out of it as above. Hand `useSuspenseData` a
-  promise instead. With TanStack Query that's
-  `useSuspenseData(useQuery(q).promise, PLACEHOLDER)` (with
-  `experimental_prefetchInRender` on the client), or
-  `queryClient.ensureQueryData(q)` started outside render (a loader, an event
-  handler) and passed down. It returns a new promise per call, so don't call
-  it during render.
+  promise instead; for TanStack Query, see below.
 - The skeleton render runs the children's effects with placeholder data;
   `useSkeleton()` is true there, so gate side effects with it (see Side
   effects).
+
+#### TanStack Query
+
+`useSuspenseQuery` suspends on its own, so it can't show a placeholder.
+Build the promise from the query cache instead, kept stable per query key
+until the data changes (`use()` needs the same promise across renders;
+`queryClient.query()` returns a new one per call). Checked against
+`@tanstack/react-query` 5.104, which has no `useQuery().promise`:
+
+```tsx
+import { hashKey, useQuery, useQueryClient, type QueryClient, type QueryKey, type UseQueryOptions } from "@tanstack/react-query";
+import { useSkeleton, useSuspenseData } from "autoskeleton";
+
+type Entry = { promise: Promise<unknown>; data?: unknown; failed?: boolean };
+const entries = new WeakMap<QueryClient, Map<string, Entry>>();
+const never = new Promise<never>(() => {});
+
+/** The query's data as a promise, the same object until the data changes. */
+function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseQueryOptions<T, Error, T, K>): Promise<T> {
+  let byKey = entries.get(client);
+  if (!byKey) entries.set(client, (byKey = new Map()));
+  const key = hashKey(options.queryKey);
+  const data = client.getQueryData<T>(options.queryKey);
+  const entry = byKey.get(key);
+  if (entry && !entry.failed && (data === undefined || entry.data === data)) return entry.promise as Promise<T>;
+  if (data !== undefined) {
+    // Cached: marked fulfilled, so it renders without suspending.
+    const promise = Object.assign(Promise.resolve(data), { status: "fulfilled", value: data });
+    byKey.set(key, { promise, data });
+    return promise;
+  }
+  const promise = client.query(options);
+  const next: Entry = { promise };
+  byKey.set(key, next);
+  promise.then(
+    () => void (next.data = client.getQueryData(options.queryKey)),
+    () => void (next.failed = true),
+  );
+  return promise;
+}
+
+/** useSuspenseQuery for <SkeletonSuspense>: the placeholder in the skeleton, the data after. */
+export function useSuspenseQueryData<T, K extends QueryKey>(options: UseQueryOptions<T, Error, T, K>, placeholder: T): T {
+  const client = useQueryClient();
+  const inSkeleton = useSkeleton();
+  useQuery({ ...options, enabled: !inSkeleton }); // refetches and cache updates re-render
+  return useSuspenseData(inSkeleton ? never : queryPromise(client, options), placeholder);
+}
+```
+
+The skeleton render doesn't fetch (`useSkeleton()` is true there). Cached
+data renders without suspending. A failed fetch throws to the error boundary;
+the next render retries. On older 5.x without `queryClient.query`, use
+`queryClient.fetchQuery(options)`.
 
 Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain
 `<Suspense>`, with a hand-wired skeleton (no fade):
