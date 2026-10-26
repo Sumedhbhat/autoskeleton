@@ -274,7 +274,10 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSu
   const key = hashKey(options.queryKey);
   const data = client.getQueryData<T>(options.queryKey);
   const entry = byKey.get(key);
-  if (entry && !entry.failed && (data === undefined || entry.data === data)) return entry.promise as Promise<T>;
+  // A failed fetch keeps its rejected promise (so the error boundary gets it)
+  // until the query leaves "error", e.g. queryClient.resetQueries({ queryKey }).
+  const failedStill = entry?.failed && client.getQueryState(options.queryKey)?.status === "error";
+  if (entry && (failedStill || (!entry.failed && (data === undefined || entry.data === data)))) return entry.promise as Promise<T>;
   if (data !== undefined) {
     // Cached: marked fulfilled, so it renders without suspending. `select` is
     // applied here as client.query() applies it on a fetch.
@@ -288,7 +291,7 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSu
   byKey.set(key, next);
   promise.then(
     () => void (next.data = client.getQueryData(options.queryKey)),
-    () => void (next.failed = true),
+    (reason: unknown) => void ((next.failed = true), Object.assign(promise, { status: "rejected", reason })),
   );
   return promise;
 }
