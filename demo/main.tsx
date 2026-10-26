@@ -307,7 +307,7 @@ function App() {
             </div>
           </Section>
 
-          <Section id="list-suspense" title="List under SkeletonSuspense (one item, fake.list)">
+          <Section id="list-suspense" title="List under SkeletonSuspense (typed fake.list placeholder)">
             <ListSuspenseDemo />
           </Section>
 
@@ -672,19 +672,20 @@ function ManualSuspenseDemo() {
   );
 }
 
-// A list under Suspense: the fallback is one placeholder item repeated with
-// fake.list, each copy with its own id so the rows' keys don't collide. The
-// child maps whatever useSuspenseData returns: placeholder rows, then posts.
-const listPostsPlaceholder: Post[] = fake.list(3, (i) => ({ ...postPlaceholder, id: fake.id(i) }));
+// A list under Suspense: declare one item and repeat it with fake.list, each
+// copy with its own id so the rows' keys don't collide. The reader passes it to
+// useSuspenseData (typed as Post[]) and maps the result: placeholder rows in the
+// skeleton, then the posts. The boundary needs no `fallback`.
+const listPostsPlaceholder = fake.list(3, (i) => ({ ...postPlaceholder, id: fake.id(i) }));
 function SuspendingPostList({ promise }: { promise: Promise<Post[]> }) {
-  const posts = useSuspenseData(promise);
+  const posts = useSuspenseData(promise, listPostsPlaceholder);
   return posts.map((p) => <PostItem key={p.id} post={p} />);
 }
 function ListSuspenseDemo() {
   const { promise } = useDemoPromise(listPosts);
   return (
     <div className="feed">
-      <SkeletonSuspense fallback={listPostsPlaceholder}>
+      <SkeletonSuspense>
         <SuspendingPostList promise={promise} />
       </SkeletonSuspense>
     </div>

@@ -227,16 +227,15 @@ assert.equal(
 const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
 assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));
 assert.doesNotMatch(tableList, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
-// A list under SkeletonSuspense: the fallback is one item repeated with
-// fake.list (own id per row, so keys don't collide), and the child maps
-// whatever useSuspenseData returns. Placeholder rows in the shell, one layer,
-// then the streamed rows. (Duplicate keys only warn in the browser: see the
-// Playwright test.)
+// A list under SkeletonSuspense: one item repeated with fake.list (own id per
+// row, so keys don't collide), passed to useSuspenseData; the boundary has no
+// `fallback`. Placeholder rows in the shell, one layer, then the streamed rows.
+// (Duplicate keys only warn in the browser: see the Playwright test.)
 const rowsPh = fake.list(2, (i) => ({ ...rowPh, id: fake.id(i) }));
 function Rows({ promise }) {
-  return h("ul", null, useSuspenseData(promise).map(li));
+  return h("ul", null, useSuspenseData(promise, rowsPh).map(li));
 }
-const suspenseList = (promise) => h(SkeletonSuspense, { fallback: rowsPh }, h(Rows, { promise }));
+const suspenseList = (promise) => h(SkeletonSuspense, null, h(Rows, { promise }));
 const pendingSuspenseList = renderToString(suspenseList(new Promise(() => {})));
 assert.match(
   pendingSuspenseList,

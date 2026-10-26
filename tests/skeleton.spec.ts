@@ -872,15 +872,17 @@ test("SkeletonList: table rows as tbody, layer portaled out of the table", async
   expect(errors).toEqual([]);
 });
 
-test("List under SkeletonSuspense: fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
+test("List under SkeletonSuspense: typed fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
   const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
   const keyWarnings: string[] = [];
   page.on("console", (m) => {
     if (/same key/i.test(m.text())) keyWarnings.push(m.text());
   });
   await page.goto("/");
   const root = page.locator('[data-fixture="list-suspense"]');
-  // Only the boundary's wrapper: the child maps the placeholder rows itself.
+  // No boundary `fallback`: the child passes its fake.list placeholder to
+  // useSuspenseData and maps it. Only the boundary's wrapper.
   await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
   await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
   expectIdenticalRows(await bonesPerItem(page, "list-suspense", ".post"), 3);
@@ -928,7 +930,9 @@ test("List under SkeletonSuspense: fake.list placeholder rows, one layer, rows f
   await expect(root.locator('[data-autoskeleton][aria-busy="true"] .post strong')).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
   await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
   expect((await bones(page, "list-suspense")).length).toBeGreaterThan(5);
-  // Each placeholder row has its own id, so no duplicate-key warnings.
+  // Each placeholder row has its own id, so no duplicate-key warnings; the
+  // placeholder is the hook's, so no missing-placeholder warning either.
   expect(keyWarnings).toEqual([]);
+  expect(warnings).toEqual([]);
   expect(errors).toEqual([]);
 });
