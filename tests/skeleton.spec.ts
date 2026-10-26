@@ -359,6 +359,7 @@ test("fake.id: string by default, negative number on request", () => {
   expect(fake.id(-2, "number")).toBe(-3);
   expect(fake.id(2.7, "number")).toBe(-3);
   expect(fake.id(Number.NaN, "number")).toBe(-1);
+  expect(fake.id(Number.POSITIVE_INFINITY, "number")).toBe(-1);
   const ids = fake.list(50, (i) => fake.id(i, "number"));
   expect(new Set(ids).size).toBe(50);
   expect(ids.every((x) => Number.isInteger(x) && x < 0)).toBe(true);

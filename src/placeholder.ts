@@ -97,7 +97,7 @@ function date(): string {
 function id(seed?: number): string;
 function id(seed: number, type: "number"): number;
 function id(seed = 0, type?: "number"): string | number {
-  return type === "number" ? -1 - (Math.abs(Math.trunc(seed)) || 0) : `skeleton-${seed}`;
+  return type === "number" ? -1 - (Number.isFinite(seed) ? Math.abs(Math.trunc(seed)) : 0) : `skeleton-${seed}`;
 }
 
 export const fake = { text, sentence, paragraph, name, email, number, image, list, date, id };
