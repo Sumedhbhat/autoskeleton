@@ -1,4 +1,5 @@
 import {
+  act,
   Component,
   StrictMode,
   Suspense,
@@ -670,6 +671,65 @@ function SuspenseAttrsDemo() {
     </SkeletonSuspense>
   );
 }
+
+// Test hook: render a SkeletonSuspense inside React's act(), synchronously, the
+// way React Testing Library does, and report what the first commit shows.
+type ActProbe = { text: string; busy: boolean; skeletonRenders: number; usedByReact: boolean };
+function ProbeReader({ promise, onSkeleton }: { promise: PromiseLike<string>; onSkeleton: () => void }) {
+  const value = useSuspenseData(promise, () => (onSkeleton(), "placeholder"));
+  return <p>{value}</p>;
+}
+function actProbe(promise: PromiseLike<string>): ActProbe {
+  const el = document.createElement("div");
+  document.body.append(el);
+  let skeletonRenders = 0;
+  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  env.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(el);
+  try {
+    act(() =>
+      root.render(
+        <SkeletonSuspense fade={0}>
+          <ProbeReader promise={promise} onSkeleton={() => skeletonRenders++} />
+        </SkeletonSuspense>,
+      ),
+    );
+    return {
+      text: el.textContent ?? "",
+      busy: el.querySelector('[aria-busy="true"]') !== null,
+      skeletonRenders,
+      // React 19's use() tags each thenable it reads with `_debugInfo` (in development).
+      usedByReact: "_debugInfo" in promise,
+    };
+  } finally {
+    env.IS_REACT_ACT_ENVIRONMENT = false;
+    setTimeout(() => (root.unmount(), el.remove()), 0);
+  }
+}
+/**
+ * "marked": a promise already settled with `status: "fulfilled"`.
+ * "seen": a plain promise, read (and suspended on) while pending, settled
+ * afterwards, then rendered again in a new tree.
+ */
+async function actProbeCase(kind: "marked" | "seen"): Promise<ActProbe> {
+  if (kind === "marked") return actProbe(settled("ready").promise);
+  const d = deferred<string>();
+  const el = document.createElement("div");
+  document.body.append(el);
+  const root = createRoot(el);
+  root.render(
+    <SkeletonSuspense fade={0}>
+      <ProbeReader promise={d.promise} onSkeleton={() => {}} />
+    </SkeletonSuspense>,
+  );
+  await new Promise((r) => setTimeout(r, 50));
+  d.resolve("ready");
+  await new Promise((r) => setTimeout(r, 50));
+  root.unmount();
+  el.remove();
+  return actProbe(d.promise);
+}
+Object.assign(window, { __actProbe: actProbeCase });
 
 class ErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { error: Error | null }> {
   state = { error: null as Error | null };

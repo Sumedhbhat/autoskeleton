@@ -747,6 +747,25 @@ test("SkeletonSuspense: HTML attributes on one wrapper at a time, one labelled s
   expect(errors).toEqual([]);
 });
 
+for (const kind of ["marked", "seen"] as const) {
+  test(`useSuspenseData: a settled promise (${kind}) renders in the first commit, inside act()`, async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("/?loading=0");
+    const probe = await page.evaluate(
+      (k) => (window as unknown as { __actProbe: (k: string) => Promise<Record<string, unknown>> }).__actProbe(k),
+      kind,
+    );
+    // No suspension: the skeleton never rendered and the content is there when
+    // act() returns.
+    expect(probe).toMatchObject({ text: "ready", busy: false, skeletonRenders: 0 });
+    // A marked promise is read synchronously, without React 19's use() (which
+    // flags act() to wait for a promise). React suspended on the "seen" one,
+    // so it is read through use(), which has it settled by then.
+    if (kind === "marked") expect(probe.usedByReact).toBe(false);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("SkeletonSuspense with id: placeholders culled off-screen don't fall back to the cached layout", async ({ page }) => {
   await page.goto("/?loading=0");
   const root = page.locator('[data-fixture="suspense-attrs"]');
