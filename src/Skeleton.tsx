@@ -475,8 +475,9 @@ function SkeletonView<T>(props: ViewProps<T>): ReactElement {
     });
     culledRef.current = !!next.culled;
 
-    if (next.bones.length === 0) {
-      // Nothing renderable to measure: fall back to a remembered layout.
+    if (next.bones.length === 0 && !next.culled) {
+      // Nothing renderable to measure: fall back to a remembered layout. (Not
+      // when it's only off-screen: that's measured again once it scrolls near.)
       const hit = cfg.id ? loadLayout(cfg.id, containerWidth(wrapper)) : null;
       if (!hit) {
         if (!empty) setEmpty(true);
