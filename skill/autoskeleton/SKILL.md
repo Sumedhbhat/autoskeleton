@@ -304,6 +304,8 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSu
 
 /** useSuspenseQuery for <SkeletonSuspense>: the placeholder in the skeleton, the data after. */
 // Same options as useSuspenseQuery, so no `enabled`: a suspending query can't be disabled.
+// `select` must return the same type as queryFn and be stable (module-level or
+// useCallback): it's applied once per data change, not on every render.
 export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspenseQueryOptions<T, Error, T, K>, placeholder: T): T {
   const client = useQueryClient();
   const inSkeleton = useSkeleton();
