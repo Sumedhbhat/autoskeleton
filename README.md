@@ -259,7 +259,9 @@ without `light-dark()` follow `prefers-color-scheme` instead.
    `animationend`/`transitionend` and (when needed) scroll trigger a
    re-measure, coalesced to one per frame. Content at `opacity: 0` gets no
    bones, unless an opacity animation or transition is running on it
-   (entrance animations like `from { opacity: 0 }`).
+   (entrance animations like `from { opacity: 0 }`). Content moved by a
+   running transform, translate, scale or rotate animation is measured where
+   it comes to rest, so bones don't jump when the animation ends.
 5. When loading ends, the layer fades out over the already-visible content.
 
 On the server, content is hidden with an inline style (so placeholder text

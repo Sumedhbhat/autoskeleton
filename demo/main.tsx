@@ -310,6 +310,14 @@ function App() {
             </div>
           </Section>
 
+          <Section id="transformed" title="Static transform (no animation)">
+            <Skeleton loading={loading}>
+              <div style={{ transform: "translate(12px, 6px)" }}>
+                <UserCard user={user ?? userPlaceholder} />
+              </div>
+            </Skeleton>
+          </Section>
+
           <Section id="attrs" title="as='ul' with aria-label, data-*, title">
             <Skeleton
               as="ul"

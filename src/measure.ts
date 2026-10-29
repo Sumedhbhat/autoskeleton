@@ -227,6 +227,47 @@ function fadingIn(el: Element): boolean {
   return false;
 }
 
+const MOTION_PROPS = new Set(["transform", "translate", "scale", "rotate"]);
+
+/**
+ * Detaches running animations/transitions of transform, translate, scale or
+ * rotate inside `roots` from their elements (`effect.target = null`), so the
+ * walk reads resting positions instead of mid-entrance ones. Timing, events
+ * and the DOM are untouched; the returned function reattaches them and must
+ * run in the same task. Targets whose detached effect also animates opacity
+ * go into `fading`. Without `getAnimations` this is a no-op.
+ */
+function parkMotion(roots: Node[], fading: Set<Element>): () => void {
+  const parked: [KeyframeEffect, Element][] = [];
+  for (const root of roots) {
+    const anims = root.nodeType === 1 ? (root as Element).getAnimations?.({ subtree: true }) : undefined;
+    for (const a of anims ?? []) {
+      if (a.playState !== "running" && !a.pending) continue;
+      const effect = a.effect as KeyframeEffect | null;
+      const target = effect?.target;
+      if (!effect || !target || effect.pseudoElement) continue;
+      let opacity = false;
+      if (typeof CSSTransition !== "undefined" && a instanceof CSSTransition) {
+        if (!MOTION_PROPS.has(a.transitionProperty)) continue;
+      } else {
+        const frames = effect.getKeyframes?.() ?? [];
+        if (!frames.some((k) => Object.keys(k).some((p) => MOTION_PROPS.has(p)))) continue;
+        opacity = frames.some((k) => "opacity" in k);
+      }
+      try {
+        effect.target = null;
+      } catch {
+        continue;
+      }
+      parked.push([effect, target]);
+      if (opacity) fading.add(target);
+    }
+  }
+  return () => {
+    for (const [effect, target] of parked) effect.target = target;
+  };
+}
+
 function intersect(a: Rect, clip: Rect | null): Rect | null {
   if (!clip) return a;
   const r = {
@@ -294,6 +335,7 @@ export function measureBones(roots: Iterable<Node>, origin: { left: number; top:
   };
 
   let blockSeq = 0;
+  const fading = new Set<Element>();
   const cull = opts.cull ?? null;
   let culled = false;
   const walk = (node: Node, clip: Clip | null, fontSize: number, block: number) => {
@@ -343,7 +385,7 @@ export function measureBones(roots: Iterable<Node>, origin: { left: number; top:
       if (rect) grow(rect);
       return;
     }
-    if (parseFloat(cs.opacity) === 0 && !fadingIn(el)) return;
+    if (parseFloat(cs.opacity) === 0 && !fading.has(el) && !fadingIn(el)) return;
 
     if (hint === "block" || BLOCK_TAGS.has(tag) || el.getAttribute("role") === "img") {
       if (rect) {
@@ -423,10 +465,17 @@ export function measureBones(roots: Iterable<Node>, origin: { left: number; top:
   };
 
   const rootFont = typeof document !== "undefined" ? parseFloat(getComputedStyle(document.documentElement).fontSize) || 16 : 16;
-  for (const root of roots) {
-    const parentFont =
-      root.parentElement ? parseFloat(getComputedStyle(root.parentElement).fontSize) || rootFont : rootFont;
-    walk(root, opts.clip ?? null, parentFont, ++blockSeq);
+  const list = Array.from(roots);
+  // Entrance animations that move content: measure where it comes to rest.
+  const unpark = parkMotion(list, fading);
+  try {
+    for (const root of list) {
+      const parentFont =
+        root.parentElement ? parseFloat(getComputedStyle(root.parentElement).fontSize) || rootFont : rootFont;
+      walk(root, opts.clip ?? null, parentFont, ++blockSeq);
+    }
+  } finally {
+    unpark();
   }
 
   const textBones = mergeTextLines(texts).map((t): Bone => {

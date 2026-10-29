@@ -68,7 +68,8 @@ async function realGeometry(page: Page, fixture: string): Promise<{ text: R[]; b
 const vOverlap = (a: R, b: R) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
 const hOverlap = (a: R, b: R) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
 
-const GEOMETRY_FIXTURES = ["user", "hook", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested"];
+// "transformed" has a static (non-animated) transform: bones follow the transformed boxes.
+const GEOMETRY_FIXTURES = ["user", "hook", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested", "transformed"];
 
 for (const fixture of GEOMETRY_FIXTURES) {
   test(`geometry matches real content: ${fixture}`, async ({ page }) => {
@@ -336,6 +337,55 @@ test("entrance animation: content starting at opacity 0 gets bones, re-measured 
   expect((await bones(page, "animated")).length).toBeGreaterThan(5);
   await finishAnimations(page);
   await expectAnimatedBones(page);
+});
+
+test("entrance animation that translates: bones sit at the resting position from the first measure", async ({ page }) => {
+  await page.goto("/?same=1&rise-delay=60s");
+  const rise = page.locator('[data-fixture="animated"] .rise-in');
+  // During the delay the content is held at translateY(8px) by the backwards fill.
+  const during = await bones(page, "animated");
+  expect(await rise.evaluate((el) => getComputedStyle(el).transform)).toBe("matrix(1, 0, 0, 1, 0, 8)");
+  const timing = () =>
+    rise.evaluate((el) => {
+      const a = el.getAnimations()[0]!;
+      return { n: el.getAnimations().length, start: a.startTime, state: a.playState };
+    });
+  const before = await timing();
+  expect(before.state).toBe("running");
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  await bones(page, "animated");
+  // Measuring didn't alter the animation: same object, timing and state.
+  expect(await timing()).toEqual(before);
+  // Halfway through the animation (a moving transform, slowed down so it
+  // stays there), re-measure.
+  await rise.evaluate((el) => {
+    const a = el.getAnimations()[0]!;
+    a.playbackRate = 0.001;
+    a.currentTime = 60_200;
+  });
+  const mid = await rise.evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).f);
+  expect(mid).toBeGreaterThan(0.5);
+  expect(mid).toBeLessThan(7.5);
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  const halfway = await bones(page, "animated");
+  await finishAnimations(page);
+  const rest = await bones(page, "animated");
+  expect(rest.length).toBeGreaterThan(5);
+  // Nothing moves when the animation ends.
+  for (const b of [during, halfway]) {
+    expect(b.length).toBe(rest.length);
+    b.forEach((x, i) => {
+      const r = rest[i]!;
+      expect(Math.abs(x.x - r.x) + Math.abs(x.y - r.y) + Math.abs(x.w - r.w) + Math.abs(x.h - r.h), JSON.stringify([x, r])).toBeLessThan(1);
+    });
+  }
+  // And the resting bones match the real content.
+  await expectAnimatedBones(page);
+  const card = (await page.locator('[data-fixture="animated"] .user-card').boundingBox())!;
+  const cardY = card.y + (await page.evaluate(() => scrollY));
+  const surface = during.find((x) => x.kind === "surface")!;
+  expect(Math.abs(surface.y - cardY), JSON.stringify([surface, card])).toBeLessThan(1);
+  expect(Math.abs(surface.x - card.x)).toBeLessThan(1);
 });
 
 test("entrance animation without getAnimations(): animationend triggers a re-measure", async ({ page }) => {

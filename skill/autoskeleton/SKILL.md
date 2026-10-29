@@ -278,8 +278,9 @@ the same border radius (round avatars stay round); small elements with a
 background or border (chips, badges, pills, buttons) become one rounded block;
 cards/panels keep their background, border and shadow; each line of wrapped
 text becomes its own bar; content inside scroll containers is clipped;
-entrance animations (`from { opacity: 0 }`) get bones and are re-measured when
-they end. Static `opacity: 0` content gets no bones.
+entrance animations (`from { opacity: 0; transform: translateY(8px) }`) get
+bones at the content's resting position and are re-measured when they end.
+Static `opacity: 0` content gets no bones.
 
 ## Props
 
