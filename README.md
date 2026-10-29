@@ -189,7 +189,7 @@ use `usePlaceholder`.
 #### `useSuspenseData`
 
 ```ts
-function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: T | (() => T)): T;
+function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: NoInfer<T> | (() => NoInfer<T>)): T;
 ```
 
 - **Inside the skeleton** (a `SkeletonSuspense` fallback) it returns
@@ -277,7 +277,7 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSu
   // A failed fetch keeps its rejected promise (so the error boundary gets it)
   // until the query leaves "error", e.g. queryClient.resetQueries({ queryKey }).
   const failedStill = entry?.failed && client.getQueryState(options.queryKey)?.status === "error";
-  if (entry && (failedStill || (!entry.failed && (data === undefined || entry.data === data)))) return entry.promise as Promise<T>;
+  if (entry && (failedStill || (!entry.failed && entry.data === data))) return entry.promise as Promise<T>;
   if (data !== undefined) {
     // Cached: marked fulfilled, so it renders without suspending. `select` is
     // applied here as client.query() applies it on a fetch.
@@ -310,7 +310,7 @@ export function useSuspenseQueryData<T, K extends QueryKey>(options: UseSuspense
 
 The skeleton render doesn't fetch (`useSkeleton()` is true there). Cached
 data renders without suspending. A failed fetch throws to the error boundary;
-the next render retries. On older 5.x without `queryClient.query`, use
+reset the query (`queryClient.resetQueries({ queryKey })`) before retrying. On older 5.x without `queryClient.query`, use
 `queryClient.fetchQuery(options)`.
 
 Outside a `SkeletonSuspense`, `useSuspenseData` works under a plain

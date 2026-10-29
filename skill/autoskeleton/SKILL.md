@@ -197,7 +197,7 @@ function Comments({ promise }: { promise: Promise<Comment[]> }) {
 }
 ```
 
-`useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: T | (() => T)): T`:
+`useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: NoInfer<T> | (() => NoInfer<T>)): T`:
 - Inside the skeleton (the boundary's fallback, which renders the same
   children again) it returns `placeholder`, or the boundary's `fallback` if
   the call has none, without suspending. With neither, it suspends (see the
@@ -283,7 +283,7 @@ function queryPromise<T, K extends QueryKey>(client: QueryClient, options: UseSu
   // A failed fetch keeps its rejected promise (so the error boundary gets it)
   // until the query leaves "error", e.g. queryClient.resetQueries({ queryKey }).
   const failedStill = entry?.failed && client.getQueryState(options.queryKey)?.status === "error";
-  if (entry && (failedStill || (!entry.failed && (data === undefined || entry.data === data)))) return entry.promise as Promise<T>;
+  if (entry && (failedStill || (!entry.failed && entry.data === data))) return entry.promise as Promise<T>;
   if (data !== undefined) {
     // Cached: marked fulfilled, so it renders without suspending. `select` is
     // applied here as client.query() applies it on a fetch.
