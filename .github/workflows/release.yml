@@ -163,7 +163,7 @@ jobs:
           fi
           tag=latest
           [ "$CHANNEL" = nightly ] && tag=nightly
-          npm publish "out/autoskeleton-$VERSION.tgz" --tag "$tag" --access public --provenance
+          npm publish "./out/autoskeleton-$VERSION.tgz" --tag "$tag" --access public --provenance
 
       - name: npm publishing disabled
         if: vars.NPM_PUBLISH != 'true'
