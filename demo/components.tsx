@@ -74,19 +74,25 @@ export interface Invoice {
   date: string;
 }
 
+export function InvoiceRow({ row: r }: { row: Invoice }) {
+  return (
+    <tr>
+      <td>{r.id}</td>
+      <td>{r.customer}</td>
+      <td className="num">{r.amount}</td>
+      <td>
+        <span className={`pill pill-${r.status}`}>{r.status}</span>
+      </td>
+      <td>{r.date}</td>
+    </tr>
+  );
+}
+
 export function InvoiceRows({ rows }: { rows: Invoice[] }) {
   return (
     <>
       {rows.map((r) => (
-        <tr key={r.id}>
-          <td>{r.id}</td>
-          <td>{r.customer}</td>
-          <td className="num">{r.amount}</td>
-          <td>
-            <span className={`pill pill-${r.status}`}>{r.status}</span>
-          </td>
-          <td>{r.date}</td>
-        </tr>
+        <InvoiceRow key={r.id} row={r} />
       ))}
     </>
   );
@@ -167,28 +173,46 @@ export interface Product {
   image: string;
 }
 
+export function ProductCard({ product: p }: { product: Product }) {
+  return (
+    <div className="product">
+      <img src={p.image} alt="" />
+      <div className="product-title">{p.title}</div>
+      <div className="price">{p.price}</div>
+    </div>
+  );
+}
+
 export function ProductGrid({ products }: { products: Product[] }) {
   return (
     <div className="products">
       {products.map((p) => (
-        <div className="product" key={p.id}>
-          <img src={p.image} alt="" />
-          <div className="product-title">{p.title}</div>
-          <div className="price">{p.price}</div>
-        </div>
+        <ProductCard key={p.id} product={p} />
       ))}
     </div>
   );
 }
 
-export function Inbox({ items }: { items: { id: string; from: string; subject: string }[] }) {
+export interface Message {
+  id: string;
+  from: string;
+  subject: string;
+}
+
+export function InboxItem({ message: m }: { message: Message }) {
+  return (
+    <li>
+      <strong>{m.from}</strong>
+      <span>{m.subject}</span>
+    </li>
+  );
+}
+
+export function Inbox({ items }: { items: Message[] }) {
   return (
     <ul className="inbox">
       {items.map((m) => (
-        <li key={m.id}>
-          <strong>{m.from}</strong>
-          <span>{m.subject}</span>
-        </li>
+        <InboxItem key={m.id} message={m} />
       ))}
     </ul>
   );

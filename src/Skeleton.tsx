@@ -114,7 +114,7 @@ function withoutHtmlAttributes<P extends object>(props: P): P {
   return out as P;
 }
 
-interface BaseProps extends SkeletonConfig {
+export interface BaseProps extends SkeletonConfig {
   /**
    * Show the skeleton instead of the content. Optional when you pass `data`:
    * then it defaults to `data == null`.
@@ -660,7 +660,8 @@ function SkeletonView<T>(props: ViewProps<T>): ReactElement {
       fonts?.removeEventListener?.("loadingdone", schedule);
       window.removeEventListener("scroll", onScroll, { capture: true });
     };
-  }, [showBones]);
+    // `host`: inside a table the layer only mounts once the portal host is known.
+  }, [showBones, host]);
 
   // Fade the skeleton out over the real content when loading ends. Derived
   // during render so the layer element stays mounted and its opacity

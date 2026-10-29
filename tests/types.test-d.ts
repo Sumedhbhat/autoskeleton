@@ -1,5 +1,5 @@
 // Type-level tests, checked by `npm run typecheck` (never run or shipped).
-import { useSuspenseData, type SkeletonSuspenseProps } from "autoskeleton";
+import { fake, useSuspenseData, type SkeletonListProps, type SkeletonSuspenseProps } from "autoskeleton";
 
 interface Comment {
   id: string;
@@ -10,6 +10,18 @@ declare const thenable: PromiseLike<{ name: string }>;
 declare const status: Promise<{ state: "ok" | "failed" }>;
 const COMMENTS: Comment[] = [{ id: "1", body: "Text" }];
 const MAYBE: (Comment | null)[] = [null];
+const COMMENT: Comment = { id: fake.id(), body: fake.sentence(8) };
+// A list placeholder declared once: one item, repeated with its own id per row.
+const LIST = fake.list(3, (i) => ({ ...COMMENT, id: fake.id(i) }));
+const WRONG_LIST = fake.list(3, (i) => ({ id: fake.id(i) }));
+// Numeric ids (Hacker News-style items): fake.id(i, "number").
+interface Story {
+  id: number;
+  title: string;
+}
+declare const stories: Promise<Story[]>;
+const STORY: Story = { id: fake.id(0, "number"), title: fake.sentence(8) };
+const STORIES = fake.list(3, (i) => ({ ...STORY, id: fake.id(i, "number") }));
 
 type Equal<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
 const expect = <T extends true>(): T => true as T;
@@ -30,7 +42,21 @@ export function Typed() {
   // An empty list is a valid Comment[]; it doesn't widen T.
   const f = useSuspenseData(promise, []);
   expect<Equal<typeof f, Comment[]>>();
-  return [a, b, c, d, e, f];
+  // fake.list returns a plain T[]: a list of Comment-shaped items is a Comment[].
+  expect<Equal<typeof LIST, { id: string; body: string }[]>>();
+  const g = useSuspenseData(promise, LIST);
+  expect<Equal<typeof g, Comment[]>>();
+  const h = useSuspenseData(promise, fake.list(2, (i) => ({ ...COMMENT, id: fake.id(i) })));
+  expect<Equal<typeof h, Comment[]>>();
+  const k = useSuspenseData(promise, () => fake.list(2, (i) => ({ ...COMMENT, id: fake.id(i) })));
+  expect<Equal<typeof k, Comment[]>>();
+  // Numeric ids: fake.id(i, "number") keeps `id: number`.
+  expect<Equal<typeof STORIES, { id: number; title: string }[]>>();
+  const m = useSuspenseData(stories, STORIES);
+  expect<Equal<typeof m, Story[]>>();
+  const n = useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i, "number") })));
+  expect<Equal<typeof n, Story[]>>();
+  return [a, b, c, d, e, f, g, h, k, m, n];
 }
 
 export function Rejected() {
@@ -48,6 +74,16 @@ export function Rejected() {
   useSuspenseData(promise, MAYBE);
   // @ts-expect-error same for a union field
   useSuspenseData(status, { state: "loading" as string });
+  // @ts-expect-error a fake.list placeholder of the wrong item shape: missing `body`
+  useSuspenseData(promise, WRONG_LIST);
+  // @ts-expect-error same, inline
+  useSuspenseData(promise, fake.list(2, (i) => ({ id: fake.id(i) })));
+  // @ts-expect-error a fake.list item with a wrong field type
+  useSuspenseData(promise, fake.list(2, (i) => ({ ...COMMENT, id: i })));
+  // @ts-expect-error a string fake.id where the item's id is a number
+  useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i) })));
+  // @ts-expect-error one fake item where the promise gives a list
+  useSuspenseData(promise, fake.list(1, () => COMMENT)[0]!);
   // @ts-expect-error not a promise
   useSuspenseData(COMMENTS, COMMENTS);
 }
@@ -67,3 +103,22 @@ export const suspenseAttributes: SkeletonSuspenseProps = {
 export const suspenseNumericId: SkeletonSuspenseProps = { id: 1 };
 // @ts-expect-error not an HTML attribute
 export const suspenseUnknown: SkeletonSuspenseProps = { notAnAttribute: true };
+
+// SkeletonList takes the wrapper's HTML attributes too; `id` stays the cache key.
+export const listAttributes: SkeletonListProps<Comment> = {
+  as: "ul",
+  id: "stories",
+  label: "Loading stories",
+  "aria-label": "Stories",
+  "data-section": "stories",
+  title: "Stories",
+  onClick: () => {},
+  items: null,
+  placeholder: COMMENT,
+  count: 5,
+  children: (c) => c.body,
+};
+// @ts-expect-error `id` is the cache key, a string
+export const listNumericId: SkeletonListProps<Comment> = { id: 1, placeholder: COMMENT, children: () => null };
+// @ts-expect-error not an HTML attribute
+export const listUnknown: SkeletonListProps<Comment> = { notAnAttribute: true, placeholder: COMMENT, children: () => null };

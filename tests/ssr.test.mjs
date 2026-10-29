@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { Writable } from "node:stream";
 import { renderToPipeableStream, renderToString } from "react-dom/server";
-import { Skeleton, SkeletonSuspense, fake, usePlaceholder, useSkeleton, useSuspenseData } from "../dist/index.js";
+import { Skeleton, SkeletonList, SkeletonSuspense, fake, usePlaceholder, useSkeleton, useSuspenseData } from "../dist/index.js";
 
 // usePlaceholder: nested fields straight in JSX, no children function.
 let lazyCalls = 0;
@@ -199,5 +199,74 @@ const failed = await stream(
 );
 assert.equal(failed.errors[0]?.message, "boom");
 assert.match(failed.shell, /aria-busy="true"/);
+
+// SkeletonList: one placeholder item rendered `count` times, then the real items.
+const rowPh = { id: "row", title: fake.sentence(4) };
+const li = (r) => h("li", { key: r.id }, r.title);
+const tr = (r) => h("tr", { key: r.id }, h("td", null, r.title));
+const phLi = `<li>${fake.sentence(4)}</li>`;
+
+const pendingList = renderToString(h(SkeletonList, { as: "ul", items: null, placeholder: rowPh, count: 4 }, li));
+assert.match(pendingList, new RegExp(`<ul data-autoskeleton="" aria-busy="true" data-pending="" style="display:contents;visibility:hidden">(${phLi}){4}`));
+// Default count is 3, and a lazy placeholder works the same.
+assert.equal(renderToString(h(SkeletonList, { as: "ul", placeholder: () => rowPh }, li)).split(phLi).length - 1, 3);
+// Loaded items render as-is, not busy.
+const loadedList = renderToString(h(SkeletonList, { as: "ul", items: [{ id: "a", title: "A" }, { id: "b", title: "B" }], placeholder: rowPh }, li));
+assert.match(loadedList, /<ul data-autoskeleton="" style="display:contents"><li>A<\/li><li>B<\/li><\/ul>/);
+// Explicit loading over stale items (refetch): the stale rows, hidden.
+assert.match(
+  renderToString(h(SkeletonList, { as: "ul", items: [{ id: "a", title: "A" }], loading: true, placeholder: rowPh }, li)),
+  /aria-busy="true"[^>]*><li>A<\/li><span data-autoskeleton-layer/,
+);
+// Explicit loading over an empty list: placeholder rows, since [] has nothing to measure.
+assert.equal(
+  renderToString(h(SkeletonList, { as: "ul", items: [], loading: true, placeholder: rowPh, count: 2 }, li)).split(phLi).length - 1,
+  2,
+);
+// Table: rows straight in the tbody, no layer inside it.
+const tableList = renderToString(h("table", null, h(SkeletonList, { as: "tbody", placeholder: rowPh, count: 2 }, tr)));
+assert.match(tableList, new RegExp(`<tbody data-autoskeleton="" aria-busy="true"[^>]*>(<tr><td>${fake.sentence(4)}</td></tr>){2}</tbody>`));
+assert.doesNotMatch(tableList, /<tbody[^>]*>.*data-autoskeleton-layer.*<\/tbody>/);
+// HTML attributes go to the list element (`id` stays the cache key), and
+// `label` is one named status outside it.
+const listAttrs = { as: "ul", id: "ssr-list-key", "aria-label": "Rows", "data-x": "1", title: "Rows", label: "Loading rows", placeholder: rowPh, count: 2 };
+const attrsList = renderToString(h(SkeletonList, listAttrs, li));
+assert.match(attrsList, /<ul aria-label="Rows" data-x="1" title="Rows" data-autoskeleton="" aria-busy="true"/);
+assert.equal(attrsList.match(/role="status"/g)?.length, 1);
+assert.match(attrsList, /<\/ul><span data-autoskeleton-sr="" role="status" aria-label="Loading rows">Loading rows<\/span>/);
+assert.doesNotMatch(attrsList, /id="ssr-list-key"| count=| items=| placeholder=| label=/);
+const attrsListReady = renderToString(h(SkeletonList, { ...listAttrs, items: [{ id: "a", title: "A" }] }, li));
+assert.match(attrsListReady, /<ul aria-label="Rows" data-x="1" title="Rows" data-autoskeleton="" style="display:contents"><li>A<\/li><\/ul>/);
+assert.doesNotMatch(attrsListReady, /role="status"| aria-busy=/);
+// Table: attributes on the tbody. The status goes in the layer, which is
+// portaled out of the table after mount (see the Playwright test), so the
+// server renders none, and never one inside the table.
+const labelledTable = renderToString(h("table", null, h(SkeletonList, { as: "tbody", label: "Loading rows", "data-x": "1", placeholder: rowPh, count: 2 }, tr)));
+assert.match(labelledTable, /<tbody data-x="1" data-autoskeleton="" aria-busy="true"/);
+assert.doesNotMatch(labelledTable, /role="status"/);
+// A list under SkeletonSuspense: one item repeated with fake.list (own id per
+// row, so keys don't collide), passed to useSuspenseData; the boundary has no
+// `fallback`. Placeholder rows in the shell, one layer, then the streamed rows.
+// (Duplicate keys only warn in the browser: see the Playwright test.)
+const rowsPh = fake.list(2, (i) => ({ ...rowPh, id: fake.id(i) }));
+function Rows({ promise }) {
+  return h("ul", null, useSuspenseData(promise, rowsPh).map(li));
+}
+const suspenseList = (promise) => h(SkeletonSuspense, null, h(Rows, { promise }));
+const pendingSuspenseList = renderToString(suspenseList(new Promise(() => {})));
+assert.match(
+  pendingSuspenseList,
+  new RegExp(`<div data-autoskeleton="" aria-busy="true" data-pending=""[^>]*>(<!--\\$-->)?<ul>(${phLi}){2}</ul>(<!--/\\$-->)?<span data-autoskeleton-layer`),
+);
+assert.equal(pendingSuspenseList.match(/<span data-autoskeleton-layer/g)?.length, 1);
+let resolveRows;
+const rowsLater = new Promise((r) => (resolveRows = r));
+const streamedList = await stream(h("main", null, suspenseList(rowsLater)), () =>
+  resolveRows([{ id: "a", title: "Streamed row" }, { id: "b", title: "Another" }]),
+);
+assert.match(streamedList.shell, new RegExp(`<!--\\$\\?-->.*aria-busy="true"[^>]*>(<!--\\$-->)?<ul>(${phLi}){2}</ul>`));
+assert.doesNotMatch(streamedList.shell, /Streamed row/);
+assert.match(streamedList.all, /<ul><li>Streamed row<\/li><li>Another<\/li><\/ul>/);
+assert.deepEqual(streamedList.errors, []);
 
 console.log("ssr ok");

@@ -88,6 +88,11 @@ const GEOMETRY_FIXTURES = [
   "suspense-shorthand",
   "suspense-manual",
   "suspense-attrs",
+  "list",
+  "list-suspense",
+  "list-grid",
+  "list-table",
+  "list-ul",
 ];
 
 for (const fixture of GEOMETRY_FIXTURES) {
@@ -786,4 +791,219 @@ test("SkeletonSuspense with id: placeholders culled off-screen don't fall back t
   await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
   expect(Math.abs((await root.evaluate((el) => el.getBoundingClientRect().height)) - loadedHeight)).toBeLessThan(1);
   expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+});
+
+/** Bones grouped by the item box (`selector`) they sit in, relative to that box. */
+async function bonesPerItem(page: Page, fixture: string, selector: string): Promise<R[][]> {
+  await bones(page, fixture);
+  return page.evaluate(
+    ([id, sel]) => {
+      const root = document.querySelector(`[data-fixture="${id}"]`)!;
+      const boxes = Array.from(root.querySelectorAll(sel!)).map((el) => el.getBoundingClientRect());
+      const groups: R[][] = boxes.map(() => []);
+      for (const b of Array.from(root.querySelectorAll<HTMLElement>("[data-bone]"))) {
+        const r = b.getBoundingClientRect();
+        const i = boxes.findIndex(
+          (x) => r.top >= x.top - 0.5 && r.bottom <= x.bottom + 0.5 && r.left >= x.left - 0.5 && r.right <= x.right + 0.5,
+        );
+        if (i >= 0) groups[i]!.push({ x: r.left - boxes[i]!.left, y: r.top - boxes[i]!.top, w: r.width, h: r.height, kind: b.dataset.bone });
+      }
+      return groups;
+    },
+    [fixture, selector],
+  );
+}
+
+function expectIdenticalRows(groups: R[][], count: number) {
+  expect(groups.length).toBe(count);
+  expect(groups[0]!.length).toBeGreaterThan(2);
+  for (const g of groups.slice(1)) {
+    expect(g.length).toBe(groups[0]!.length);
+    for (const [i, b] of g.entries()) {
+      const a = groups[0]![i]!;
+      expect(Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + Math.abs(b.w - a.w) + Math.abs(b.h - a.h)).toBeLessThan(1);
+    }
+  }
+}
+
+test("SkeletonList: count identical placeholder rows, then the real rows", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list"]');
+  const wrapper = root.locator("[data-autoskeleton]");
+  await expect(wrapper).toHaveAttribute("aria-busy", "true");
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expectIdenticalRows(await bonesPerItem(page, "list", ".post"), 3);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(wrapper).not.toHaveAttribute("aria-busy");
+  await expect(root.locator(".post strong")).toHaveText(["Grace Hopper", "Alan Turing", "Katherine Johnson"]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // Back to loading: placeholder rows again (no duplicate-key warnings either way).
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expect((await bones(page, "list")).length).toBeGreaterThan(5);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: grid and ul rows repeat the placeholder count times", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  await expect(page.locator('[data-fixture="list-grid"] .product')).toHaveCount(4);
+  expectIdenticalRows(await bonesPerItem(page, "list-grid", ".product"), 4);
+  await expect(page.locator('[data-fixture="list-ul"] ul[data-autoskeleton] > li')).toHaveCount(4);
+  expect((await bones(page, "list-ul")).length).toBeGreaterThan(4);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator('[data-fixture="list-grid"] .product-title')).toHaveText(["Desk lamp", "Ceramic mug", "Notebook", "Wool throw"]);
+  await expect(page.locator('[data-fixture="list-ul"] li strong')).toHaveText(["Sender 0", "Sender 1", "Sender 2", "Sender 3"]);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: table rows as tbody, layer portaled out of the table", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-table"]');
+  await expect(root.locator("tbody[data-autoskeleton] > tr")).toHaveCount(3);
+  await expect(root.locator("table [data-autoskeleton-layer]")).toHaveCount(0);
+  expectIdenticalRows(await bonesPerItem(page, "list-table", "tbody tr"), 3);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("tbody tr td:first-child")).toHaveText(["INV-001", "INV-002", "INV-003"]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList as='ul': HTML attributes on the list, one labelled status while loading", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-ul"]');
+  const list = root.locator('[data-section="inbox-list"]');
+  await expect(list).toHaveCount(1);
+  expect(await list.evaluate((el) => el.tagName)).toBe("UL");
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(list).toHaveAttribute("aria-label", "Inbox list");
+  await expect(list).toHaveAttribute("title", "Inbox list");
+  await expect(list).toHaveClass("inbox");
+  // `id` is the cache key, never the DOM id; SkeletonList's own props stay off the DOM.
+  await expect(list).not.toHaveAttribute("id");
+  for (const name of ["items", "count", "placeholder", "label"]) await expect(list).not.toHaveAttribute(name);
+  expect((await bones(page, "list-ul")).length).toBeGreaterThan(4);
+  const status = page.getByRole("status", { name: "Loading inbox list" });
+  await expect(status).toHaveCount(1);
+  expect(await status.evaluate((el) => el.closest("[inert]") === null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading inbox list");
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect(status).toHaveCount(0);
+  await expect(list).not.toHaveAttribute("aria-busy");
+  await expect(page.getByRole("list", { name: "Inbox list" })).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-list-ul") !== null)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList as='tbody': one labelled status, in the portaled layer", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-table"]');
+  await expect(root.locator('tbody[data-section="invoice-list"]')).toHaveAttribute("aria-busy", "true");
+  const status = page.getByRole("status", { name: "Loading invoice list" });
+  await expect(status).toHaveCount(1);
+  // Not inside the table (or the inert content): it travels with the layer.
+  expect(await status.evaluate((el) => el.closest("table") === null && el.closest("[inert]") === null)).toBe(true);
+  expect(await status.evaluate((el) => el.closest("[data-autoskeleton-layer]") !== null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading invoice list");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("tbody tr td:first-child")).toHaveText(["INV-001", "INV-002", "INV-003"]);
+  await expect(status).toHaveCount(0);
+  await expect(root.locator('tbody[data-section="invoice-list"]')).not.toHaveAttribute("aria-busy");
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonList: rows with an entrance animation (opacity 0 at first) get bones", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1&rise-delay=60s");
+  const root = page.locator('[data-fixture="list-animated"]');
+  await expect(root.locator(".rise-in")).toHaveCount(3);
+  // During the delay the rows are at opacity exactly 0, and still drawn.
+  expect(await root.locator(".rise-in").first().evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expectIdenticalRows(await bonesPerItem(page, "list-animated", ".rise-in"), 3);
+  // When the animation ends they're re-measured at their final position.
+  await finishAnimations(page);
+  const after = await bonesPerItem(page, "list-animated", ".rise-in");
+  expectIdenticalRows(after, 3);
+  const top = await root.locator(".rise-in").first().evaluate((el) => el.getBoundingClientRect().top);
+  const bone = await root.locator("[data-bone]").first().evaluate((el) => el.getBoundingClientRect().top);
+  expect(bone).toBeGreaterThanOrEqual(top - 0.5);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // Load more: the next rows start invisible too and still get bones.
+  await page.evaluate(() => window.__setLoading(true));
+  expect(await root.locator(".rise-in").first().evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expectIdenticalRows(await bonesPerItem(page, "list-animated", ".rise-in"), 3);
+  expect(errors).toEqual([]);
+});
+
+test("List under SkeletonSuspense: typed fake.list placeholder rows, one layer, rows fade out over the content", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  const keyWarnings: string[] = [];
+  page.on("console", (m) => {
+    if (/same key/i.test(m.text())) keyWarnings.push(m.text());
+  });
+  await page.goto("/");
+  const root = page.locator('[data-fixture="list-suspense"]');
+  // No boundary `fallback`: the child passes its fake.list placeholder to
+  // useSuspenseData and maps it. Only the boundary's wrapper.
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator(".post strong")).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  expectIdenticalRows(await bonesPerItem(page, "list-suspense", ".post"), 3);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
+  // Relative to the section, captured in the same frame: sections above change height as they load.
+  const relative = (bs: R[], top: number) => bs.map((b) => ({ ...b, y: b.y - top }));
+  const sectionTop = () => root.evaluate((el) => el.getBoundingClientRect().top + scrollY);
+  const before = relative(await bones(page, "list-suspense"), await sectionTop());
+
+  // On resolve the rows' bones fade out over the content, where they were drawn.
+  const fading = await page.evaluate(
+    () =>
+      new Promise<R[] | null>((resolve) => {
+        const root = document.querySelector('[data-fixture="list-suspense"]')!;
+        const mo = new MutationObserver(() => {
+          const layer = root.querySelector("[data-autoskeleton-layer][data-exiting]");
+          if (!layer) return;
+          mo.disconnect();
+          const top = root.getBoundingClientRect().top;
+          resolve(
+            Array.from(layer.querySelectorAll("[data-bone]")).map((b) => {
+              const r = b.getBoundingClientRect();
+              return { x: r.left, y: r.top - top, w: r.width, h: r.height };
+            }),
+          );
+        });
+        mo.observe(document.body, { subtree: true, attributes: true, childList: true });
+        window.__setLoading(false);
+        setTimeout(() => resolve(null), 2000);
+      }),
+  );
+  expect(fading, "fallback bones faded out over the content").not.toBeNull();
+  expect(fading!.length).toBe(before.length);
+  for (const [i, b] of fading!.entries()) {
+    expect(Math.abs(b.x - before[i]!.x)).toBeLessThan(1);
+    expect(Math.abs(b.y - before[i]!.y)).toBeLessThan(1);
+  }
+  await expect(root.locator(".post strong")).toHaveText(["Grace Hopper", "Alan Turing", "Katherine Johnson"]);
+  await expect(root.locator("[data-autoskeleton]")).toHaveCount(1);
+  await expect(root.locator("[data-autoskeleton]")).not.toHaveAttribute("aria-busy");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // A new promise suspends again: placeholder rows come back.
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"] .post strong')).toHaveText([fake.name(1), fake.name(1), fake.name(1)]);
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(1);
+  expect((await bones(page, "list-suspense")).length).toBeGreaterThan(5);
+  // Each placeholder row has its own id, so no duplicate-key warnings; the
+  // placeholder is the hook's, so no missing-placeholder warning either.
+  expect(keyWarnings).toEqual([]);
+  expect(warnings).toEqual([]);
+  expect(errors).toEqual([]);
 });
