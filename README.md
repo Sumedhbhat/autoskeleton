@@ -12,7 +12,7 @@ and pills, and the card backgrounds and borders they sit on. There's no second
 changes.
 
 ```tsx
-import { Skeleton, fake } from "autoskeleton";
+import { Skeleton, fake, usePlaceholder } from "autoskeleton";
 
 const USER_PLACEHOLDER: User = {
   name: fake.name(),
@@ -22,17 +22,18 @@ const USER_PLACEHOLDER: User = {
 };
 
 function Profile() {
-  const { data } = useQuery(userQuery);
+  const query = useQuery(userQuery);
+  const { data: user, loading } = usePlaceholder(query.data, USER_PLACEHOLDER);
   return (
-    <Skeleton data={data} placeholder={USER_PLACEHOLDER}>
-      {(user) => <UserCard user={user} />}
+    <Skeleton loading={loading}>
+      <UserCard user={user} />
     </Skeleton>
   );
 }
 ```
 
-`loading` is inferred from `data == null`; the render function always gets a
-`User`, so there's no `user?.name ?? ""` dance inside `UserCard`.
+`loading` is `data == null`, and `user` is always a `User` (the placeholder
+until data arrives), so there's no `user?.name ?? ""` dance inside `UserCard`.
 
 ## Install
 
@@ -47,11 +48,40 @@ prefer a static file, import `autoskeleton/styles.css` and set
 
 ## Usage
 
+### `usePlaceholder`
+
+```tsx
+const { data: d, loading } = usePlaceholder(query.data, PAGE_PLACEHOLDER);
+
+<Skeleton loading={loading}>
+  <UserCard user={d.user} />
+  <Feed posts={d.posts} />
+</Skeleton>
+```
+
+`d` is the real data, or the placeholder while loading, typed as `T` either
+way, so nested fields work directly in JSX. `loading` defaults to
+`data == null`; pass `{ loading: isLoading }` to override it. The placeholder
+can be a value or `() => value` (a pure factory, called when first
+needed and cached with the component's state).
+
+### Render prop
+
+The same thing without the hook, when you'd rather keep it inline:
+
+```tsx
+<Skeleton data={data} placeholder={USER_PLACEHOLDER}>
+  {(user) => <UserCard user={user} />}
+</Skeleton>
+```
+
 ### Explicit `loading`
+
+For anything you can already render while loading:
 
 ```tsx
 <Skeleton loading={isLoading}>
-  <Feed posts={posts ?? POSTS_PLACEHOLDER} />
+  <SettingsForm plan={plan} />
 </Skeleton>
 ```
 
@@ -68,6 +98,8 @@ fake.email(seed)
 fake.number(4)           // 8888
 fake.image(400, 300)     // transparent image with real intrinsic size
 fake.list(5, (i) => ({ id: fake.id(i), title: fake.sentence(6, i) }))
+fake.id(i)               // "skeleton-<i>"
+fake.id(i, "number")     // -1 - i: numeric ids, never collides with real ones
 fake.date()              // fixed ISO string
 ```
 
@@ -77,15 +109,24 @@ closer the lengths are to real data, the less the page moves when data arrives.
 ### Tables, lists and grids
 
 The wrapper is `display: contents`, so it never changes flex or grid layout.
-Inside a table, render it as the `tbody`:
+Inside a table, render it as the `tbody` (`rows` from `usePlaceholder`):
 
 ```tsx
 <table>
   <thead>…</thead>
-  <Skeleton as="tbody" data={rows} placeholder={ROWS_PLACEHOLDER}>
-    {(rs) => rs.map((r) => <Row key={r.id} row={r} />)}
+  <Skeleton as="tbody" loading={loading}>
+    {rows.map((r) => <Row key={r.id} row={r} />)}
   </Skeleton>
 </table>
+```
+
+When the wrapper is the list itself, label it like any element: HTML
+attributes go to the wrapper.
+
+```tsx
+<Skeleton as="ul" aria-label="Stories" loading={loading}>
+  {stories.map((s) => <Story key={s.id} story={s} />)}
+</Skeleton>
 ```
 
 ### Refetching, "load more" and Suspense
@@ -155,21 +196,41 @@ focused.
 | Prop | Default | |
 | --- | --- | --- |
 | `loading` | `data == null` | Show the skeleton. |
-| `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. |
-| `id` | | Cache key for remembered layouts. |
+| `data`, `placeholder`, children function | | Render-prop form. `placeholder` can be a value or `() => value`. Or use `usePlaceholder` and pass only `loading`. |
+| `id` | | Cache key for remembered layouts. Not the DOM `id` (never forwarded). |
 | `fallback` | | Shown when nothing can be measured and nothing is cached. |
 | `animation` | `"shimmer"` | `"shimmer"`, `"pulse"` or `"none"`. Reduced motion is respected. |
 | `as` | `"div"` | Wrapper element (always `display: contents`). |
 | `fade` | `200` | Milliseconds to fade the skeleton out when loading ends. |
-| `label` | | Screen-reader text (`role="status"`) while loading. |
+| `label` | | Screen-reader text while loading: a `role="status"` element named by it (`getByRole("status", { name: label })`), rendered next to the wrapper since the content is `inert`. |
 | `textHeight` | `0.72` | Text bar height as a fraction of the font size. |
 | `surfaces` | `true` | Copy card backgrounds, borders and shadows. |
 | `persist` | `true` | Save `id` layouts to localStorage. |
+| `className`, `style`, `aria-*`, `data-*`, `role`, `title`, event handlers… | | Forwarded to the wrapper element (`SkeletonHTMLAttributes`). |
 
-`<SkeletonProvider>` takes the same options as defaults for a subtree. Theme
-with CSS variables on any ancestor: `--autoskeleton-color`,
+`id` is the cache key, so it is never forwarded as the wrapper's DOM `id`.
+If you need one, put it on an element inside, or wrap the skeleton.
+
+`<SkeletonProvider>` takes the same options as defaults for a subtree.
+
+### Theming
+
+Theme with CSS variables on any ancestor: `--autoskeleton-color`,
 `--autoskeleton-highlight`, `--autoskeleton-radius`,
 `--autoskeleton-text-radius`, `--autoskeleton-duration`.
+
+The default bone colour is a translucent grey that works on light and dark
+backgrounds. The default shimmer highlight follows the inherited
+`color-scheme` (via `light-dark()`), so a class or `data-theme` toggle works
+as long as it sets `color-scheme`:
+
+```css
+html.dark { color-scheme: dark; } /* or [data-theme="dark"] */
+```
+
+Most theme libraries set it already; Tailwind's `dark:` class alone doesn't.
+Without a `color-scheme` the page is light and so is the highlight. Browsers
+without `light-dark()` follow `prefers-color-scheme` instead.
 
 ## How it works
 
@@ -194,13 +255,21 @@ with CSS variables on any ancestor: `--autoskeleton-color`,
    are relative to the layer's own box, so the result is correct whatever the
    containing block is. Inside table internals the layer is portaled next to
    the table so the markup stays valid.
-4. A `ResizeObserver`, a `MutationObserver`, image `load` events, font loading
-   and (when needed) scroll trigger a re-measure, coalesced to one per frame.
+4. A `ResizeObserver`, a `MutationObserver`, image `load` events, font loading,
+   `animationend`/`transitionend` and (when needed) scroll trigger a
+   re-measure, coalesced to one per frame. Content at `opacity: 0` gets no
+   bones, unless an opacity animation or transition is running on it
+   (entrance animations like `from { opacity: 0 }`). Content moved by a
+   running transform, translate, scale or rotate animation is measured where
+   it comes to rest, so bones don't jump when the animation ends.
 5. When loading ends, the layer fades out over the already-visible content.
 
 On the server, content is hidden with an inline style (so placeholder text
 never flashes before CSS loads) and a CSS-only approximation shows until
-hydration measures the real thing.
+hydration measures the real thing: text is transparent; media, controls and
+boxes holding only text (avatars with initials, chips, badges, lines of text)
+become bone-coloured blocks with their own radius, brand colours, borders and
+shadows removed; boxes with block children (cards) keep their surface.
 
 ### Performance
 
@@ -228,7 +297,7 @@ relying on the comparison.
 | Project | Approach | Taken from it | Different here |
 | --- | --- | --- | --- |
 | [boneyard-js](https://github.com/0xgf/boneyard) | Captures layouts at build time: a CLI/Vite plugin opens your app in a headless browser at set breakpoints (375/768/1280 by default) and writes `.bones.json` files you import as a registry. | `<Skeleton name loading>`-style wrapping; remembering layouts so a skeleton can be drawn with no data (our `id` cache); fade-out transition. | No build step or headless browser. Layout is measured live at the real width, font and data shape, and remeasured on resize; the cache only fills the gap when nothing can render. |
-| [shimmer-from-structure](https://github.com/darula-hpp/shimmer-from-structure) | Runtime: measures leaf elements with `getBoundingClientRect()` in `useLayoutEffect` when `loading` turns true, keeps container backgrounds by making text transparent, and spreads `templateProps` onto the first child for mock data. | Measuring the real component at runtime in a layout effect; keeping card backgrounds; copying border radius. | Text is measured per *line* with `Range.getClientRects()`, not per element box. Remeasures on resize, mutations, image and font loads. Typed placeholder data through a render prop instead of props spread on the first child. Viewport culling for long lists. Content is `inert`/`aria-busy` while hidden. |
+| [shimmer-from-structure](https://github.com/darula-hpp/shimmer-from-structure) | Runtime: measures leaf elements with `getBoundingClientRect()` in `useLayoutEffect` when `loading` turns true, keeps container backgrounds by making text transparent, and spreads `templateProps` onto the first child for mock data. | Measuring the real component at runtime in a layout effect; keeping card backgrounds; copying border radius. | Text is measured per *line* with `Range.getClientRects()`, not per element box. Remeasures on resize, mutations, image and font loads. Typed placeholder data through a hook or render prop instead of props spread on the first child. Viewport culling for long lists. Content is `inert`/`aria-busy` while hidden. |
 | [react-skeletonify](https://dev.to/sinan0333/building-dynamic-skeleton-loaders-in-react-the-easy-way-1fae) | Runtime `SkeletonWrapper loading` that turns the wrapped tree into skeletons, with a global `SkeletonProvider` config. | The provider for global defaults. | Its docs are thin, so this row is the least verified. Compare directly. |
 | [react-stencilize](https://dev.to/t4y3/withstencil-stop-writing-skeleton-components-twice-2dfk) | `withStencil(Component)` HOC that renders the component with a deep "safe" Proxy as props and blanks the output, usually as a Suspense fallback. | The goal (never write a component twice) and the "same component as the Suspense fallback" pattern. | A Proxy for automatic placeholder data was tried and dropped: React can't render a Proxy as a text child, so text lengths (the thing that makes skeletons look right) are lost. `fake.*` keeps lengths realistic and data typed. |
 | [instaskeleton](https://www.npmjs.com/package/instaskeleton) | No DOM scanning: infers shapes from the JSX element tree, with an optional manual schema and an LRU cache. | | Measures the DOM instead, so CSS (wrapping, grid, aspect ratios, clamping) is reflected exactly. |

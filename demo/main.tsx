@@ -1,12 +1,21 @@
-import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { Skeleton, SkeletonProvider, fake, measureBones, useSkeleton, type SkeletonAnimation } from "autoskeleton";
+import {
+  Skeleton,
+  SkeletonProvider,
+  fake,
+  measureBones,
+  usePlaceholder,
+  useSkeleton,
+  type SkeletonAnimation,
+} from "autoskeleton";
 import {
   ArticleView,
   CenteredHero,
   Feed,
   Inbox,
   InvoiceRows,
+  PostItem,
   ProductGrid,
   SettingsForm,
   StatTiles,
@@ -129,6 +138,14 @@ const productsPlaceholder: Product[] = fake.list(6, (i) => ({
   image: fake.image(300, 300),
 }));
 
+// Nested data for the usePlaceholder() case: one query, several fields.
+interface Profile {
+  user: User;
+  pinned: Post;
+}
+const realProfile: Profile = { user: realUser, pinned: realPosts[0]! };
+const profilePlaceholder = (): Profile => ({ user: userPlaceholder, pinned: postsPlaceholder[0]! });
+
 const inboxPlaceholder = fake.list(12, (i) => ({ id: String(i), from: fake.name(i), subject: fake.sentence(6, i) }));
 const realInbox = fake.list(12, (i) => ({ id: String(i), from: `Sender ${i}`, subject: `Subject line number ${i} with some words` }));
 
@@ -180,6 +197,10 @@ function App() {
   const article = pick(realArticle, articlePlaceholder, loading);
   const products = pick(realProducts, productsPlaceholder, loading);
   const inbox = pick(realInbox, inboxPlaceholder, loading);
+  const { data: d, loading: profileLoading } = usePlaceholder(
+    pick(realProfile, profilePlaceholder(), loading),
+    profilePlaceholder,
+  );
 
   return (
     <SkeletonProvider animation={animation} fade={params.has("fade") ? Number(params.get("fade")) : undefined}>
@@ -206,6 +227,15 @@ function App() {
             </Skeleton>
           </Section>
 
+          <Section id="hook" title="Nested data (usePlaceholder, no arrow)">
+            <Skeleton loading={profileLoading}>
+              <div className="feed">
+                <UserCard user={d.user} />
+                <PostItem post={d.pinned} />
+              </div>
+            </Skeleton>
+          </Section>
+
           <Section id="feed" title="Feed list (data ?? placeholder)">
             <Skeleton loading={loading}>
               <Feed posts={posts ?? postsPlaceholder} />
@@ -223,7 +253,7 @@ function App() {
                   <th>Date</th>
                 </tr>
               </thead>
-              <Skeleton as="tbody" loading={loading}>
+              <Skeleton as="tbody" loading={loading} label="Loading invoices">
                 <InvoiceRows rows={invoices ?? invoicesPlaceholder} />
               </Skeleton>
             </table>
@@ -264,6 +294,47 @@ function App() {
           <Section id="toolbar" title="Toolbar: chips, svg, flex">
             <Skeleton loading={loading}>
               <Toolbar tags={["Design", "Engineering", "Ops", "Sales"]} />
+            </Skeleton>
+          </Section>
+
+          <Section id="animated" title="Entrance animation (starts at opacity 0)">
+            <div style={{ "--rise-delay": params.get("rise-delay") ?? undefined } as CSSProperties}>
+              <Skeleton loading={loading}>
+                <div className="rise-in">
+                  <UserCard user={user ?? userPlaceholder} />
+                </div>
+                <p className="hidden-note" style={{ opacity: 0 }}>
+                  Intentionally hidden, no bone
+                </p>
+              </Skeleton>
+            </div>
+          </Section>
+
+          <Section id="transformed" title="Static transform (no animation)">
+            <Skeleton loading={loading}>
+              <div style={{ transform: "translate(12px, 6px)" }}>
+                <UserCard user={user ?? userPlaceholder} />
+              </div>
+            </Skeleton>
+          </Section>
+
+          <Section id="attrs" title="as='ul' with aria-label, data-*, title">
+            <Skeleton
+              as="ul"
+              className="inbox"
+              id="demo-attrs"
+              aria-label="Recent mail"
+              data-section="recent"
+              title="Recent mail"
+              label="Loading recent mail"
+              loading={loading}
+            >
+              {(inbox ?? inboxPlaceholder).slice(0, 3).map((m) => (
+                <li key={m.id}>
+                  <strong>{m.from}</strong>
+                  <span>{m.subject}</span>
+                </li>
+              ))}
             </Skeleton>
           </Section>
 

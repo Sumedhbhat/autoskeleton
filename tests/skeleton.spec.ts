@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { fake } from "../src/placeholder";
 
 type R = { x: number; y: number; w: number; h: number; kind?: string; tag?: string };
 
@@ -67,7 +68,8 @@ async function realGeometry(page: Page, fixture: string): Promise<{ text: R[]; b
 const vOverlap = (a: R, b: R) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
 const hOverlap = (a: R, b: R) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
 
-const GEOMETRY_FIXTURES = ["user", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested"];
+// "transformed" has a static (non-animated) transform: bones follow the transformed boxes.
+const GEOMETRY_FIXTURES = ["user", "hook", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested", "transformed"];
 
 for (const fixture of GEOMETRY_FIXTURES) {
   test(`geometry matches real content: ${fixture}`, async ({ page }) => {
@@ -122,6 +124,24 @@ test("content is hidden and inert while loading, then revealed", async ({ page }
   await expect(btn).toBeVisible();
   await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   expect(await page.locator("[inert]").count()).toBe(0);
+});
+
+test("usePlaceholder: nested placeholder fields while loading, real data after", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="hook"]');
+  const wrapper = root.locator("[data-autoskeleton]");
+  await expect(wrapper).toHaveAttribute("aria-busy", "true");
+  await expect(root.locator(".user-card h3")).toContainText(fake.name());
+  await expect(root.locator(".post strong")).toHaveText(fake.name(1));
+  expect((await bones(page, "hook")).length).toBeGreaterThan(5);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(wrapper).not.toHaveAttribute("aria-busy");
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator(".post strong")).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(errors).toEqual([]);
 });
 
 test("toggling back to loading re-measures current content", async ({ page }) => {
@@ -283,4 +303,173 @@ test("fade={0}: skeleton disappears immediately and comes back on the next load"
   await expect(page.locator("[data-autoskeleton-layer]")).toHaveCount(0);
   await page.evaluate(() => window.__setLoading(true));
   expect((await bones(page, "user")).length).toBeGreaterThan(5);
+});
+
+async function finishAnimations(page: Page) {
+  await page.evaluate(() => {
+    for (const a of document.getAnimations()) if (a instanceof CSSAnimation && a.animationName === "rise-in") a.finish();
+  });
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+async function expectAnimatedBones(page: Page) {
+  const b = await bones(page, "animated");
+  const note = (await page.locator('[data-fixture="animated"] .hidden-note').boundingBox())!;
+  const noteY = note.y + (await page.evaluate(() => scrollY));
+  // Intentionally hidden opacity:0 content still gets no bone.
+  expect(b.filter((x) => x.y < noteY + note.height && x.y + x.h > noteY)).toEqual([]);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.locator('[data-fixture="animated"] [data-autoskeleton-layer]')).toHaveCount(0);
+  const real = await realGeometry(page, "animated");
+  // Bones sit at the final (post-animation) position: same box as the avatar and button.
+  for (const m of real.blocks) {
+    const match = b.some(
+      (x) => x.kind === "block" && Math.abs(x.x - m.x) < 1.5 && Math.abs(x.y - m.y) < 1.5 && Math.abs(x.w - m.w) < 1.5 && Math.abs(x.h - m.h) < 1.5,
+    );
+    expect(match, `no block bone for ${m.tag} ${JSON.stringify(m)}`).toBe(true);
+  }
+}
+
+test("entrance animation: content starting at opacity 0 gets bones, re-measured when it ends", async ({ page }) => {
+  await page.goto("/?same=1&rise-delay=60s");
+  // During the delay (opacity exactly 0): already drawn.
+  expect(await page.locator('[data-fixture="animated"] .rise-in').evaluate((el) => getComputedStyle(el).opacity)).toBe("0");
+  expect((await bones(page, "animated")).length).toBeGreaterThan(5);
+  await finishAnimations(page);
+  await expectAnimatedBones(page);
+});
+
+test("entrance animation that translates: bones sit at the resting position from the first measure", async ({ page }) => {
+  await page.goto("/?same=1&rise-delay=60s");
+  const rise = page.locator('[data-fixture="animated"] .rise-in');
+  // During the delay the content is held at translateY(8px) by the backwards fill.
+  const during = await bones(page, "animated");
+  expect(await rise.evaluate((el) => getComputedStyle(el).transform)).toBe("matrix(1, 0, 0, 1, 0, 8)");
+  const timing = () =>
+    rise.evaluate((el) => {
+      const a = el.getAnimations()[0]!;
+      return { n: el.getAnimations().length, start: a.startTime, state: a.playState };
+    });
+  const before = await timing();
+  expect(before.state).toBe("running");
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  await bones(page, "animated");
+  // Measuring didn't alter the animation: same object, timing and state.
+  expect(await timing()).toEqual(before);
+  // Halfway through the animation (a moving transform, slowed down so it
+  // stays there), re-measure.
+  await rise.evaluate((el) => {
+    const a = el.getAnimations()[0]!;
+    a.playbackRate = 0.001;
+    a.currentTime = 60_200;
+  });
+  const mid = await rise.evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).f);
+  expect(mid).toBeGreaterThan(0.5);
+  expect(mid).toBeLessThan(7.5);
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  const halfway = await bones(page, "animated");
+  await finishAnimations(page);
+  const rest = await bones(page, "animated");
+  expect(rest.length).toBeGreaterThan(5);
+  // Nothing moves when the animation ends.
+  for (const b of [during, halfway]) {
+    expect(b.length).toBe(rest.length);
+    b.forEach((x, i) => {
+      const r = rest[i]!;
+      expect(Math.abs(x.x - r.x) + Math.abs(x.y - r.y) + Math.abs(x.w - r.w) + Math.abs(x.h - r.h), JSON.stringify([x, r])).toBeLessThan(1);
+    });
+  }
+  // And the resting bones match the real content.
+  await expectAnimatedBones(page);
+  const card = (await page.locator('[data-fixture="animated"] .user-card').boundingBox())!;
+  const cardY = card.y + (await page.evaluate(() => scrollY));
+  const surface = during.find((x) => x.kind === "surface")!;
+  expect(Math.abs(surface.y - cardY), JSON.stringify([surface, card])).toBeLessThan(1);
+  expect(Math.abs(surface.x - card.x)).toBeLessThan(1);
+});
+
+test("entrance animation without getAnimations(): animationend triggers a re-measure", async ({ page }) => {
+  await page.addInitScript(() => {
+    delete (Element.prototype as Partial<Element>).getAnimations;
+  });
+  await page.goto("/?same=1&rise-delay=60s");
+  await bones(page, "animated"); // scrolled into view, still at opacity 0
+  await finishAnimations(page);
+  expect((await bones(page, "animated")).length).toBeGreaterThan(5);
+  await expectAnimatedBones(page);
+});
+
+test("fake.id: string by default, negative number on request", () => {
+  expect(fake.id(3)).toBe("skeleton-3");
+  expect(fake.id()).toBe("skeleton-0");
+  const n: number = fake.id(3, "number");
+  expect(n).toBe(-4);
+  expect(fake.id(0, "number")).toBe(-1);
+  // Always negative, whatever the seed.
+  expect(fake.id(-2, "number")).toBe(-3);
+  expect(fake.id(2.7, "number")).toBe(-3);
+  expect(fake.id(Number.NaN, "number")).toBe(-1);
+  expect(fake.id(Number.POSITIVE_INFINITY, "number")).toBe(-1);
+  const ids = fake.list(50, (i) => fake.id(i, "number"));
+  expect(new Set(ids).size).toBe(50);
+  expect(ids.every((x) => Number.isInteger(x) && x < 0)).toBe(true);
+});
+
+for (const [os, app, alpha] of [
+  ["light", "dark", "0.07"],
+  ["dark", "light", "0.45"],
+] as const) {
+  test(`shimmer follows the app's color-scheme (${app} app, ${os} OS)`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: os });
+    await page.goto(`/?same=1${app === "dark" ? "&dark=1" : ""}`);
+    const sweep = await page
+      .locator('[data-fixture="user"] [data-bone="text"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::after").backgroundImage);
+    expect(sweep).toContain(`rgba(255, 255, 255, ${alpha})`);
+  });
+}
+
+test("HTML attributes are forwarded to the wrapper; id stays the cache key", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1");
+  const list = page.locator('[data-fixture="attrs"] ul[data-autoskeleton]');
+  await expect(list).toHaveAttribute("aria-label", "Recent mail");
+  await expect(list).toHaveAttribute("data-section", "recent");
+  await expect(list).toHaveAttribute("title", "Recent mail");
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(list).not.toHaveAttribute("id");
+  expect((await bones(page, "attrs")).length).toBeGreaterThan(3);
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(list).not.toHaveAttribute("aria-busy");
+  await expect(list).toHaveAttribute("aria-label", "Recent mail");
+  await expect(page.getByRole("list", { name: "Recent mail" })).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-attrs") !== null)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+/** Names of `status` nodes in Chrome's own accessibility tree (what screen readers get). */
+async function axStatusNames(page: Page): Promise<string[]> {
+  const cdp = await page.context().newCDPSession(page);
+  const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as {
+    nodes: { ignored: boolean; role?: { value: string }; name?: { value: string } }[];
+  };
+  await cdp.detach();
+  return nodes.filter((n) => !n.ignored && n.role?.value === "status").map((n) => n.name?.value ?? "");
+}
+
+test("label: status is findable by accessible name and exposed outside the inert content", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/?same=1");
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveCount(1);
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveText("Loading recent mail");
+  // Inside table internals the status travels with the portaled layer.
+  await expect(page.getByRole("status", { name: "Loading invoices" })).toHaveCount(1);
+  await expect.poll(() => axStatusNames(page)).toEqual(expect.arrayContaining(["Loading recent mail", "Loading invoices"]));
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading invoices" })).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

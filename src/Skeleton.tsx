@@ -12,6 +12,7 @@ import {
   useState,
   type CSSProperties,
   type ElementType,
+  type HTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -62,6 +63,44 @@ export function useSkeleton(): boolean {
   return useContext(LoadingContext);
 }
 
+/**
+ * Standard HTML attributes (`aria-*`, `data-*`, `role`, `title`, event
+ * handlers, ...) forwarded to the wrapper element. Not forwarded: `id` (the
+ * cache key), `children`, `nonce` (used for the injected <style>) and
+ * `inert`/`aria-busy` while loading (set by the skeleton).
+ */
+export type SkeletonHTMLAttributes = Omit<HTMLAttributes<HTMLElement>, "id" | "children" | "nonce" | "inert" | "className" | "style"> & {
+  [data: `data-${string}`]: string | number | boolean | undefined;
+};
+
+/** Props that configure the skeleton; everything else goes to the wrapper element. */
+const OWN_PROPS = new Set([
+  "loading",
+  "id",
+  "fallback",
+  "label",
+  "as",
+  "className",
+  "style",
+  "children",
+  "data",
+  "placeholder",
+  "animation",
+  "textHeight",
+  "surfaces",
+  "fade",
+  "persist",
+  "injectStyles",
+  "nonce",
+  "inert",
+]);
+
+function htmlAttributes(props: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) if (!OWN_PROPS.has(k)) out[k] = v;
+  return out;
+}
+
 interface BaseProps extends SkeletonConfig {
   /**
    * Show the skeleton instead of the content. Optional when you pass `data`:
@@ -72,6 +111,7 @@ interface BaseProps extends SkeletonConfig {
    * Cache key. The measured layout is remembered (memory + localStorage), so
    * the skeleton can still be drawn when the children can't render at all
    * while loading (no placeholder data, first paint before data exists).
+   * Not forwarded as the wrapper's DOM `id`.
    */
   id?: string;
   /** Rendered (visibly) when there's nothing to measure and nothing cached. */
@@ -98,7 +138,7 @@ interface RenderProps<T> extends BaseProps {
   children: (data: T) => ReactNode;
 }
 
-export type SkeletonProps<T = unknown> = NodeProps | RenderProps<T>;
+export type SkeletonProps<T = unknown> = (NodeProps | RenderProps<T>) & SkeletonHTMLAttributes;
 
 const EMPTY: BoneLayout = { bones: [], width: 0, height: 0, left: 0, top: 0 };
 
@@ -140,6 +180,8 @@ function contentRoots(wrapper: Element): Node[] {
       ),
   );
 }
+
+const MOTION_END = ["animationend", "transitionend"] as const;
 
 const TABLE_PARTS = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "COLGROUP"]);
 
@@ -319,6 +361,12 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
     });
     mo.observe(wrapper, { subtree: true, childList: true, characterData: true, attributes: true });
     wrapper.addEventListener("load", schedule, true);
+    // Entrance animations/transitions (opacity, transform) end without any
+    // resize or mutation; re-measure at their final position.
+    const onMotionEnd = (e: Event) => {
+      if (!(e.target instanceof Node && layer.contains(e.target))) schedule();
+    };
+    for (const t of MOTION_END) wrapper.addEventListener(t, onMotionEnd, true);
     window.addEventListener("resize", schedule);
     const fonts = typeof document !== "undefined" ? document.fonts : undefined;
     fonts?.addEventListener?.("loadingdone", schedule);
@@ -334,6 +382,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       ro?.disconnect();
       mo.disconnect();
       wrapper.removeEventListener("load", schedule, true);
+      for (const t of MOTION_END) wrapper.removeEventListener(t, onMotionEnd, true);
       window.removeEventListener("resize", schedule);
       fonts?.removeEventListener?.("loadingdone", schedule);
       window.removeEventListener("scroll", onScroll, { capture: true });
@@ -380,6 +429,15 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
   const layerStyle = { "--sk-w": `${Math.max(layout.width, 1)}px` } as CSSProperties;
 
   const tableAs = typeof props.as === "string" && TABLE_PARTS.has(props.as.toUpperCase());
+  // The content is inert (hidden from assistive tech), so the status lives
+  // outside it: next to the wrapper, or in the portaled layer inside tables.
+  // aria-label gives it an accessible name; the text is what gets announced.
+  const status =
+    config.label && showBones ? (
+      <span data-autoskeleton-sr="" role="status" aria-label={config.label}>
+        {config.label}
+      </span>
+    ) : null;
   const layer = renderLayer ? (
     <span
       ref={layerRef}
@@ -388,11 +446,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
       data-exiting={exiting && !showBones ? "" : undefined}
       style={layerStyle}
     >
-      {config.label && showBones ? (
-        <span data-autoskeleton-sr="" role="status">
-          {config.label}
-        </span>
-      ) : null}
+      {host ? status : null}
       {layout.bones.map((b, i) => (
         <span key={i} data-bone={b.kind} aria-hidden style={boneStyle(b, layout)} />
       ))}
@@ -400,12 +454,14 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
   ) : null;
 
   const Wrapper = props.as ?? "div";
+  const attrs = htmlAttributes(props);
   return (
     <LoadingContext.Provider value={ancestorLoading || loading}>
       <Wrapper
+        {...attrs}
         ref={wrapperRef}
         data-autoskeleton=""
-        aria-busy={loading ? "true" : undefined}
+        aria-busy={loading ? "true" : attrs["aria-busy"]}
         // Not measured yet (server render, before hydration): CSS-only approximation.
         data-pending={showBones && !measured ? "" : undefined}
         className={props.className}
@@ -424,6 +480,7 @@ export function Skeleton<T>(props: SkeletonProps<T>): ReactElement {
         ) : null}
         {host || tableAs ? null : layer}
       </Wrapper>
+      {host || tableAs ? null : status}
       {host && layer ? createPortal(layer, host) : null}
     </LoadingContext.Provider>
   );
