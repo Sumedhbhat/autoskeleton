@@ -29,7 +29,10 @@ async function bones(page: Page, fixture: string): Promise<R[]> {
 /** Real geometry of the loaded content: one rect per text line fragment, plus media/control boxes. */
 async function realGeometry(page: Page, fixture: string): Promise<{ text: R[]; blocks: R[] }> {
   return page.evaluate((id) => {
-    const body = document.querySelector(`[data-fixture="${id}"] [data-autoskeleton]`)!;
+    // A hand-wired Suspense fallback leaves no wrapper once the content shows.
+    const body =
+      document.querySelector(`[data-fixture="${id}"] [data-autoskeleton]`) ??
+      document.querySelector(`[data-fixture="${id}"] .fixture-body`)!;
     const text: R[] = [];
     const blocks: R[] = [];
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
@@ -69,7 +72,23 @@ const vOverlap = (a: R, b: R) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, 
 const hOverlap = (a: R, b: R) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
 
 // "transformed" has a static (non-animated) transform: bones follow the transformed boxes.
-const GEOMETRY_FIXTURES = ["user", "hook", "feed", "table", "stats", "article", "form", "products", "toolbar", "nested", "transformed"];
+const GEOMETRY_FIXTURES = [
+  "user",
+  "hook",
+  "feed",
+  "table",
+  "stats",
+  "article",
+  "form",
+  "products",
+  "toolbar",
+  "nested",
+  "transformed",
+  "skeleton-suspense",
+  "suspense-shorthand",
+  "suspense-manual",
+  "suspense-attrs",
+];
 
 for (const fixture of GEOMETRY_FIXTURES) {
   test(`geometry matches real content: ${fixture}`, async ({ page }) => {
@@ -472,4 +491,299 @@ test("label: status is findable by accessible name and exposed outside the inert
   await expect(page.getByRole("status", { name: "Loading recent mail" })).toHaveCount(0);
   await expect(page.getByRole("status", { name: "Loading invoices" })).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+/**
+ * Flip loading off and return the fixture's bones at the moment they start
+ * fading out, with `y` relative to the fixture's top at that moment.
+ */
+async function fadingBones(page: Page, fixture: string): Promise<R[] | null> {
+  return page.evaluate(
+    (id) =>
+      new Promise<R[] | null>((resolve) => {
+        const mo = new MutationObserver(() => {
+          const layer = document.querySelector(`[data-fixture="${id}"] [data-autoskeleton-layer][data-exiting]`);
+          if (!layer) return;
+          mo.disconnect();
+          const top = document.querySelector(`[data-fixture="${id}"]`)!.getBoundingClientRect().top;
+          resolve(
+            Array.from(layer.querySelectorAll("[data-bone]")).map((b) => {
+              const r = b.getBoundingClientRect();
+              return { x: r.left, y: r.top - top, w: r.width, h: r.height };
+            }),
+          );
+        });
+        mo.observe(document.body, { subtree: true, attributes: true, childList: true });
+        window.__setLoading(false);
+        setTimeout(() => resolve(null), 2000);
+      }),
+    fixture,
+  );
+}
+
+/** Collect autoskeleton's own console warnings. */
+function trackWarnings(page: Page): string[] {
+  const warnings: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "warning" && m.text().includes("autoskeleton")) warnings.push(m.text());
+  });
+  return warnings;
+}
+
+test("SkeletonSuspense: no fallback, the child's typed placeholder while suspended, content fades in", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="skeleton-suspense"]');
+  const wrapper = root.locator("[data-autoskeleton]");
+  // The fallback is the same child component, rendered with the placeholder
+  // by useSuspenseData, inside a loading skeleton.
+  await expect(wrapper).toHaveAttribute("aria-busy", "true");
+  const reader = root.locator('[data-reader="feed"]');
+  await expect(reader).toHaveCount(1);
+  await expect(reader).toHaveAttribute("data-in-skeleton", "");
+  await expect(reader.locator(".post strong").first()).toHaveText(fake.name(1));
+  // useSkeleton() gates its effect while it renders with placeholder data.
+  await expect(reader).toHaveAttribute("data-tracked", "0");
+  const before = await bones(page, "skeleton-suspense");
+  expect(before.length).toBeGreaterThan(5);
+  // Sections above change height when everything loads, so compare against the section.
+  const topBefore = await root.evaluate((el) => el.getBoundingClientRect().top + scrollY);
+
+  // On resolve, the content mounts and the fallback's bones fade out over it,
+  // drawn where the fallback had them in the section (no jump while fading).
+  const fading = await fadingBones(page, "skeleton-suspense");
+  expect(fading, "fallback bones faded out over the content").not.toBeNull();
+  expect(fading!.length).toBe(before.length);
+  for (const [i, b] of fading!.entries()) {
+    expect(Math.abs(b.x - before[i]!.x)).toBeLessThan(1);
+    expect(Math.abs(b.y - (before[i]!.y - topBefore))).toBeLessThan(1);
+  }
+  await expect(wrapper).toHaveCount(1);
+  await expect(wrapper).not.toHaveAttribute("aria-busy");
+  await expect(reader).not.toHaveAttribute("data-in-skeleton");
+  await expect(reader.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(reader).not.toHaveAttribute("data-tracked", "0"); // StrictMode runs it twice
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  // Every boundary on the page either has its reads covered or no `fallback`
+  // to leave unused: no warnings.
+  expect(warnings).toEqual([]);
+});
+
+test("SkeletonSuspense: suspending again shows the skeleton", async ({ page }) => {
+  await page.goto("/?loading=0");
+  const root = page.locator('[data-fixture="skeleton-suspense"]');
+  await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator('[data-reader="feed"][data-in-skeleton] .post strong').first()).toHaveText(fake.name(1));
+  expect((await bones(page, "skeleton-suspense")).length).toBeGreaterThan(5);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(root.locator(".post strong").first()).toBeVisible();
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+});
+
+test("SkeletonSuspense: the untyped fallback shorthand, next to a typed read that wins", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-shorthand"]');
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  // The user reads the boundary's placeholder, the feed its own.
+  await expect(root.locator('[data-reader="user"][data-in-skeleton] .user-card h3')).toContainText(fake.name());
+  await expect(root.locator('[data-reader="feed"][data-in-skeleton] .post strong').first()).toHaveText(fake.name(1));
+  const before = await bones(page, "suspense-shorthand");
+  expect(before.length).toBeGreaterThan(10);
+  const fading = await fadingBones(page, "suspense-shorthand");
+  expect(fading, "fallback bones faded out over the content").not.toBeNull();
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+  // Suspends again with a new request.
+  await page.evaluate(() => window.__setLoading(true));
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  expect((await bones(page, "suspense-shorthand")).length).toBeGreaterThan(10);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("[data-in-skeleton]")).toHaveCount(0);
+  await expect(root.locator(".user-card h3")).toBeVisible();
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  expect(errors).toEqual([]);
+});
+
+test("useSuspenseData outside a SkeletonSuspense suspends like use()", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-manual"]');
+  // The plain <Suspense> fallback shows; the reader itself isn't rendered yet.
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator('[data-reader="feed"]')).toHaveCount(0);
+  expect((await bones(page, "suspense-manual")).length).toBeGreaterThan(5);
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator('[data-reader="feed"] .post strong').first()).toHaveText("Grace Hopper");
+  await expect(root.locator('[data-reader="feed"]')).not.toHaveAttribute("data-tracked", "0");
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense: a rejection reaches the error boundary", async ({ page }) => {
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-error"]');
+  expect((await bones(page, "suspense-error")).length).toBeGreaterThan(5);
+  await expect(root.locator('[data-reader="user"][data-in-skeleton] .user-card h3')).toContainText(fake.name());
+  await page.locator("#suspense-reject").click();
+  await expect(root.getByRole("alert")).toContainText("Network down");
+  await expect(root.locator("[data-autoskeleton]")).toHaveCount(0);
+  await expect(root.locator("[data-bone]")).toHaveCount(0);
+  // Retrying with a fresh promise shows the skeleton again, then the data.
+  await page.locator("#suspense-retry").click();
+  await expect(root.getByRole("alert")).toHaveCount(0);
+  expect((await bones(page, "suspense-error")).length).toBeGreaterThan(5);
+  await page.locator("#suspense-resolve").click();
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator("[data-autoskeleton-layer]")).toHaveCount(0);
+});
+
+test("SkeletonSuspense: warns when a child suspends without useSuspenseData", async ({ page }) => {
+  const warnings = trackWarnings(page);
+  await page.goto("/?ignored=1");
+  const root = page.locator('[data-fixture="suspense-ignored"]');
+  // The fallback renders, but the child suspends inside it: no placeholder, no bones.
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator(".user-card")).toHaveCount(0);
+  await expect.poll(() => warnings.length).toBe(1);
+  expect(warnings[0]).toContain("got a `fallback`");
+  expect(warnings[0]).toContain("useSuspenseData");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  expect(warnings.length).toBe(1);
+});
+
+test("SkeletonSuspense: a read with no placeholder suspends in the skeleton, with a warning", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  await page.goto("/?missing=1");
+  const root = page.locator('[data-fixture="suspense-missing"]');
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  // The untyped read suspends inside the skeleton instead of crashing. The
+  // nearest <Suspense> there is the user's own one around it, so only that part
+  // drops out; the typed feed is still drawn.
+  await expect(root.locator('[data-reader="feed"][data-in-skeleton] .post strong').first()).toHaveText(fake.name(1));
+  await expect(root.locator(".user-card")).toHaveCount(0);
+  expect((await bones(page, "suspense-missing")).length).toBeGreaterThan(5);
+  await expect.poll(() => warnings.length).toBe(1);
+  expect(warnings[0]).toContain("has no placeholder");
+  expect(warnings[0]).toContain("useSuspenseData(promise, PLACEHOLDER)");
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator(".user-card h3")).toContainText("Ada Lovelace");
+  await expect(root.locator(".post strong").first()).toHaveText("Grace Hopper");
+  await expect(root.locator("[data-in-skeleton]")).toHaveCount(0);
+  expect(warnings.length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense: with no placeholders, id draws the cached layout on refetch", async ({ page }) => {
+  const errors = trackErrors(page);
+  const warnings = trackWarnings(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-id"]');
+  await expect(root.locator(".user-card")).toBeVisible({ timeout: 5000 });
+  // Let the content's layout be saved, then suspend again.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.locator("#suspense-id-reload").click();
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(1);
+  expect((await bones(page, "suspense-id")).length).toBeGreaterThan(4);
+  await expect(root.locator(".user-card")).toBeVisible({ timeout: 5000 });
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
+  expect(warnings).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("SkeletonSuspense: HTML attributes on one wrapper at a time, one labelled status while suspended", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/");
+  const root = page.locator('[data-fixture="suspense-attrs"]');
+  const tagged = root.locator('[data-section="suspended"]');
+  // Suspended: only the skeleton's wrapper exists, and it has them.
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).toHaveAttribute("aria-busy", "true");
+  await expect(tagged).toHaveAttribute("aria-label", "Suspended mail");
+  await expect(tagged).toHaveAttribute("title", "Suspended mail");
+  await expect(tagged).toHaveClass("inbox");
+  await expect(tagged).not.toHaveAttribute("id");
+  expect(await tagged.evaluate((el) => el.tagName)).toBe("UL");
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+  // One status, named, outside the inert skeleton.
+  const status = page.getByRole("status", { name: "Loading suspended mail" });
+  await expect(status).toHaveCount(1);
+  expect(await status.evaluate((el) => el.closest("[inert]") === null)).toBe(true);
+  await expect.poll(() => axStatusNames(page)).toContain("Loading suspended mail");
+
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect(status).toHaveCount(0);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).not.toHaveAttribute("aria-busy");
+  await expect(page.getByRole("list", { name: "Suspended mail" })).toHaveCount(1);
+
+  // A refetch suspends again: React keeps the content mounted but hidden next
+  // to the skeleton, and the attributes stay on it, so they're not doubled.
+  await page.evaluate(() => window.__setLoading(true));
+  const skeleton = root.locator('[data-autoskeleton][aria-busy="true"]');
+  await expect(skeleton).toHaveCount(1);
+  await expect(skeleton).not.toHaveAttribute("data-section");
+  await expect(skeleton).toHaveClass("inbox");
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
+  await expect(status).toHaveCount(1);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).toBeHidden();
+  await page.evaluate(() => window.__setLoading(false));
+  await expect(status).toHaveCount(0);
+  await expect(tagged).toHaveCount(1);
+  await expect(tagged).not.toHaveAttribute("aria-busy");
+  await expect(tagged).toHaveAttribute("aria-label", "Suspended mail");
+  await expect(root.locator("li strong").first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+for (const kind of ["marked", "seen"] as const) {
+  test(`useSuspenseData: a settled promise (${kind}) renders in the first commit, inside act()`, async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto("/?loading=0");
+    const probe = await page.evaluate(
+      (k) => (window as unknown as { __actProbe: (k: string) => Promise<Record<string, unknown>> }).__actProbe(k),
+      kind,
+    );
+    // No suspension: the skeleton never rendered and the content is there when
+    // act() returns.
+    expect(probe).toMatchObject({ text: "ready", busy: false, skeletonRenders: 0 });
+    // A marked promise is read synchronously, without React 19's use() (which
+    // flags act() to wait for a promise). React suspended on the "seen" one,
+    // so it is read through use(), which has it settled by then.
+    if (kind === "marked") expect(probe.usedByReact).toBe(false);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("SkeletonSuspense with id: placeholders culled off-screen don't fall back to the cached layout", async ({ page }) => {
+  await page.goto("/?loading=0");
+  const root = page.locator('[data-fixture="suspense-attrs"]');
+  await expect(root.locator("li strong").first()).toHaveText("Sender 0");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("autoskeleton:v1:demo-suspense-attrs") !== null)).toBe(true);
+  const loadedHeight = await root.evaluate((el) => el.getBoundingClientRect().height);
+  // Suspended, then re-measured while scrolled far past it: its placeholder
+  // bones are culled, which isn't "nothing to measure", so no cached layout
+  // and spacer are added. Scroll explicitly and resize to force the re-measure
+  // (relying on reload's scroll restoration was flaky under load).
+  await page.goto("/");
+  await expect(root.locator('[data-autoskeleton][aria-busy="true"]')).toHaveCount(1);
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(2000);
+  const size = page.viewportSize()!;
+  await page.setViewportSize({ width: size.width, height: size.height - 1 });
+  await page.waitForTimeout(300);
+  await expect(root.locator("[data-autoskeleton-spacer]")).toHaveCount(0);
+  expect(Math.abs((await root.evaluate((el) => el.getBoundingClientRect().height)) - loadedHeight)).toBeLessThan(1);
+  expect((await bones(page, "suspense-attrs")).length).toBeGreaterThan(3);
 });

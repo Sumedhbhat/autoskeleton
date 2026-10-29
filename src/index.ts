@@ -1,5 +1,6 @@
-export { Skeleton, SkeletonProvider, useSkeleton } from "./Skeleton";
-export type { SkeletonProps, SkeletonConfig, SkeletonAnimation, SkeletonHTMLAttributes } from "./Skeleton";
+export { Skeleton, SkeletonProvider, SkeletonSuspense, useSkeleton } from "./Skeleton";
+export type { SkeletonProps, SkeletonSuspenseProps, SkeletonConfig, SkeletonAnimation, SkeletonHTMLAttributes } from "./Skeleton";
+export { useSuspenseData } from "./suspenseData";
 export { fake } from "./placeholder";
 export { usePlaceholder } from "./usePlaceholder";
 export type { PlaceholderResult, UsePlaceholderOptions } from "./usePlaceholder";

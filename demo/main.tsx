@@ -1,12 +1,24 @@
-import { StrictMode, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  act,
+  Component,
+  StrictMode,
+  Suspense,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   Skeleton,
   SkeletonProvider,
+  SkeletonSuspense,
   fake,
   measureBones,
   usePlaceholder,
   useSkeleton,
+  useSuspenseData,
   type SkeletonAnimation,
 } from "autoskeleton";
 import {
@@ -242,6 +254,34 @@ function App() {
             </Skeleton>
           </Section>
 
+          <Section id="skeleton-suspense" title="SkeletonSuspense + useSuspenseData(promise, placeholder)">
+            <SkeletonSuspenseDemo />
+          </Section>
+
+          <Section id="suspense-shorthand" title="SkeletonSuspense: untyped fallback shorthand + a typed read">
+            <ShorthandDemo />
+          </Section>
+
+          <Section id="suspense-manual" title="useSuspenseData outside a boundary (plain Suspense)">
+            <ManualSuspenseDemo />
+          </Section>
+
+          <Section id="suspense-attrs" title="SkeletonSuspense as='ul' with label, aria-label, data-*" wide>
+            <SuspenseAttrsDemo />
+          </Section>
+
+          {params.has("missing") ? (
+            <Section id="suspense-missing" title="SkeletonSuspense: a read without a placeholder">
+              <MissingDemo />
+            </Section>
+          ) : null}
+
+          {params.has("ignored") ? (
+            <Section id="suspense-ignored" title="SkeletonSuspense: child suspends some other way">
+              <IgnoredDemo />
+            </Section>
+          ) : null}
+
           <Section id="table" title="Table rows (as='tbody')" wide>
             <table className="table">
               <thead>
@@ -379,6 +419,14 @@ function App() {
           <Section id="suspense" title="Suspense fallback via id cache">
             <SuspenseDemo />
           </Section>
+
+          <Section id="suspense-id" title="SkeletonSuspense without placeholders: id cache">
+            <SuspenseIdDemo />
+          </Section>
+
+          <Section id="suspense-error" title="SkeletonSuspense: rejection → error boundary">
+            <SuspenseErrorDemo />
+          </Section>
         </main>
       </div>
     </SkeletonProvider>
@@ -407,6 +455,318 @@ function SuspenseDemo() {
           <SuspendingProfile k={k} />
         </Skeleton>
       </Suspense>
+    </div>
+  );
+}
+// The same with SkeletonSuspense and no placeholder anywhere: the skeleton
+// render measures nothing, so the `id`-cached layout is drawn.
+function SuspenseIdDemo() {
+  const [k, setK] = useState(100);
+  return (
+    <div>
+      <button data-skeleton="ignore" onClick={() => setK((n) => n + 1)} id="suspense-id-reload">
+        Refetch
+      </button>
+      <SkeletonSuspense id="suspense-id-profile">
+        <SuspendingProfile k={k} />
+      </SkeletonSuspense>
+    </div>
+  );
+}
+// ---------------------------------------------------------------------------
+// Suspense with promises. Each demo gets a pending promise while the global
+// switch says "loading", resolved when it flips (a new one on each reload).
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+}
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+  return { promise, resolve, reject };
+}
+/** Already settled and marked so (the `use()` convention): renders without suspending. */
+function settled<T>(value: T): Deferred<T> {
+  const promise = Object.assign(Promise.resolve(value), { status: "fulfilled", value });
+  return { promise, resolve: () => {}, reject: () => {} };
+}
+
+function useDemoPromise<T>(value: T): Deferred<T> {
+  const loading = useLoading();
+  const [d, setD] = useState(() => (loading ? deferred<T>() : settled(value)));
+  const [prev, setPrev] = useState(loading);
+  if (prev !== loading) {
+    setPrev(loading);
+    if (loading) setD(deferred<T>());
+  }
+  useEffect(() => {
+    if (!loading) d.resolve(value);
+  }, [loading, d, value]);
+  return d;
+}
+
+const demoPosts = SAME ? postsPlaceholder : realPosts;
+const demoUser = SAME ? userPlaceholder : realUser;
+
+/** Reads its promise with a typed placeholder: the placeholder in the skeleton, the posts after. */
+function SuspendingFeed({ promise }: { promise: Promise<Post[]> }) {
+  const posts = useSuspenseData(promise, postsPlaceholder);
+  const inSkeleton = useSkeleton();
+  const [fired, setFired] = useState(0);
+  useEffect(() => {
+    if (inSkeleton) return;
+    // Stand-in for an outside-world effect: it must not run with placeholder data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFired((n) => n + 1);
+  }, [inSkeleton]);
+  return (
+    <div className="suspense-reader" data-reader="feed" data-in-skeleton={inSkeleton ? "" : undefined} data-tracked={fired}>
+      <Feed posts={posts} />
+    </div>
+  );
+}
+function SuspendingUser({ promise }: { promise: PromiseLike<User> }) {
+  const user = useSuspenseData(promise, userPlaceholder);
+  return (
+    <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
+      <UserCard user={user} />
+    </div>
+  );
+}
+/** No placeholder of its own: gets the boundary's untyped `fallback`, if any. */
+function UntypedUser({ promise }: { promise: PromiseLike<User> }) {
+  const user = useSuspenseData(promise);
+  return (
+    <div data-reader="user" data-in-skeleton={useSkeleton() ? "" : undefined}>
+      <UserCard user={user} />
+    </div>
+  );
+}
+
+// The typed form: no `fallback`; the reader passes its own placeholder.
+function SkeletonSuspenseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense>
+      <SuspendingFeed promise={promise} />
+    </SkeletonSuspense>
+  );
+}
+
+// A request the global switch restarts and resolves, read from module scope.
+let userRequest = loadingState ? deferred<User>() : settled(demoUser);
+listeners.add(() => {
+  if (loadingState) userRequest = deferred<User>();
+  else userRequest.resolve(demoUser);
+});
+
+// The shorthand: the user read has no placeholder, so it gets the boundary's
+// (lazy, untyped) `fallback`; the feed passes its own typed one, which wins.
+function ShorthandDemo() {
+  useLoading();
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense fallback={() => userPlaceholder}>
+      <div className="feed">
+        <UntypedUser promise={userRequest.promise} />
+        <SuspendingFeed promise={promise} />
+      </div>
+    </SkeletonSuspense>
+  );
+}
+
+// No placeholder for the user read and no `fallback`: it suspends inside the
+// skeleton, with a dev warning. Its own <Suspense> keeps that to the user
+// card (without it the whole skeleton would be empty); the feed is still drawn.
+function MissingDemo() {
+  useLoading();
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <SkeletonSuspense>
+      <div className="feed">
+        <Suspense fallback={null}>
+          <UntypedUser promise={userRequest.promise} />
+        </Suspense>
+        <SuspendingFeed promise={promise} />
+      </div>
+    </SkeletonSuspense>
+  );
+}
+
+// useSuspenseData outside a SkeletonSuspense is `use()`: a plain <Suspense>
+// with a hand-wired skeleton fallback.
+function ManualSuspenseDemo() {
+  const { promise } = useDemoPromise(demoPosts);
+  return (
+    <Suspense
+      fallback={
+        <Skeleton loading>
+          <Feed posts={postsPlaceholder} />
+        </Skeleton>
+      }
+    >
+      <SuspendingFeed promise={promise} />
+    </Suspense>
+  );
+}
+
+// `use(promise)` for React 18 and 19, standing in for useSuspenseQuery: it
+// suspends without useSuspenseData, so it never sees the placeholder.
+type Status<T> = { state: "pending" } | { state: "done"; value: T } | { state: "failed"; error: unknown };
+const statusOf = new WeakMap<Promise<unknown>, Status<unknown>>();
+function read<T>(promise: Promise<T>): T {
+  const known = (promise as { status?: string; value?: T }).status === "fulfilled";
+  if (known) return (promise as unknown as { value: T }).value;
+  let s = statusOf.get(promise) as Status<T> | undefined;
+  if (!s) {
+    s = { state: "pending" };
+    statusOf.set(promise, s);
+    promise.then(
+      (value) => void statusOf.set(promise, { state: "done", value }),
+      (error: unknown) => void statusOf.set(promise, { state: "failed", error }),
+    );
+  }
+  if (s.state === "done") return s.value;
+  if (s.state === "failed") throw s.error;
+  throw promise;
+}
+function SelfLoadingUser() {
+  useLoading();
+  return <UserCard user={read(userRequest.promise)} />;
+}
+function IgnoredDemo() {
+  return (
+    <SkeletonSuspense fallback={userPlaceholder}>
+      <SelfLoadingUser />
+    </SkeletonSuspense>
+  );
+}
+
+// HTML attributes and `label` on a SkeletonSuspense: the attributes sit on the
+// wrapper on screen, the label is one status outside the inert skeleton.
+function SuspendingMail({ promise }: { promise: Promise<typeof realInbox> }) {
+  const mail = useSuspenseData(promise, inboxPlaceholder);
+  return mail.slice(0, 3).map((m) => (
+    <li key={m.id}>
+      <strong>{m.from}</strong>
+      <span>{m.subject}</span>
+    </li>
+  ));
+}
+function SuspenseAttrsDemo() {
+  const { promise } = useDemoPromise(SAME ? inboxPlaceholder : realInbox);
+  return (
+    <SkeletonSuspense
+      as="ul"
+      className="inbox"
+      id="demo-suspense-attrs"
+      aria-label="Suspended mail"
+      data-section="suspended"
+      title="Suspended mail"
+      label="Loading suspended mail"
+    >
+      <SuspendingMail promise={promise} />
+    </SkeletonSuspense>
+  );
+}
+
+// Test hook: render a SkeletonSuspense inside React's act(), synchronously, the
+// way React Testing Library does, and report what the first commit shows.
+type ActProbe = { text: string; busy: boolean; skeletonRenders: number; usedByReact: boolean };
+function ProbeReader({ promise, onSkeleton }: { promise: PromiseLike<string>; onSkeleton: () => void }) {
+  const value = useSuspenseData(promise, () => (onSkeleton(), "placeholder"));
+  return <p>{value}</p>;
+}
+function actProbe(promise: PromiseLike<string>): ActProbe {
+  const el = document.createElement("div");
+  document.body.append(el);
+  let skeletonRenders = 0;
+  const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  env.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(el);
+  try {
+    act(() =>
+      root.render(
+        <SkeletonSuspense fade={0}>
+          <ProbeReader promise={promise} onSkeleton={() => skeletonRenders++} />
+        </SkeletonSuspense>,
+      ),
+    );
+    return {
+      text: el.textContent ?? "",
+      busy: el.querySelector('[aria-busy="true"]') !== null,
+      skeletonRenders,
+      // React 19's use() tags each thenable it reads with `_debugInfo` (in development).
+      usedByReact: "_debugInfo" in promise,
+    };
+  } finally {
+    env.IS_REACT_ACT_ENVIRONMENT = false;
+    setTimeout(() => (root.unmount(), el.remove()), 0);
+  }
+}
+/**
+ * "marked": a promise already settled with `status: "fulfilled"`.
+ * "seen": a plain promise, read (and suspended on) while pending, settled
+ * afterwards, then rendered again in a new tree.
+ */
+async function actProbeCase(kind: "marked" | "seen"): Promise<ActProbe> {
+  if (kind === "marked") return actProbe(settled("ready").promise);
+  const d = deferred<string>();
+  const el = document.createElement("div");
+  document.body.append(el);
+  const root = createRoot(el);
+  root.render(
+    <SkeletonSuspense fade={0}>
+      <ProbeReader promise={d.promise} onSkeleton={() => {}} />
+    </SkeletonSuspense>,
+  );
+  await new Promise((r) => setTimeout(r, 50));
+  d.resolve("ready");
+  await new Promise((r) => setTimeout(r, 50));
+  root.unmount();
+  el.remove();
+  return actProbe(d.promise);
+}
+Object.assign(window, { __actProbe: actProbeCase });
+
+class ErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="fallback" role="alert">
+        Couldn't load: {this.state.error.message}{" "}
+        <button id="suspense-retry" onClick={this.props.onRetry}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+}
+
+function SuspenseErrorDemo() {
+  const demo = useDemoPromise(demoUser);
+  // A retry starts a fresh request, independent of the global switch.
+  const [retry, setRetry] = useState<{ n: number; d: Deferred<User> } | null>(null);
+  const current = retry?.d ?? demo;
+  return (
+    <div>
+      <button id="suspense-reject" onClick={() => current.reject(new Error("Network down"))}>
+        Fail request
+      </button>{" "}
+      <button id="suspense-resolve" onClick={() => current.resolve(realUser)}>
+        Resolve
+      </button>
+      <ErrorBoundary key={retry?.n ?? 0} onRetry={() => setRetry((r) => ({ n: (r?.n ?? 0) + 1, d: deferred<User>() }))}>
+        <SkeletonSuspense>
+          <SuspendingUser promise={current.promise} />
+        </SkeletonSuspense>
+      </ErrorBoundary>
     </div>
   );
 }
