@@ -42,7 +42,7 @@ export interface SkeletonConfig {
   fade?: number;
   /** Persist `id` layouts to localStorage. Default: true. */
   persist?: boolean;
-  /** Inject the stylesheet at runtime. Set false if you import `autoskeleton/styles.css`. Default: true. */
+  /** Inject the stylesheet at runtime. Set false if you import `@autoskeleton/react/styles.css`. Default: true. */
   injectStyles?: boolean;
   /** CSP nonce for the injected <style>. */
   nonce?: string;

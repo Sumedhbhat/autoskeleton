@@ -12,7 +12,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
-    "paths": { "autoskeleton": ["./src/index.ts"] }
+    "paths": { "@autoskeleton/react": ["./src/index.ts"] }
   },
   "include": ["src", "demo", "tests"]
 }

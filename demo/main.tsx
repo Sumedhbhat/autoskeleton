@@ -21,7 +21,7 @@ import {
   useSkeleton,
   useSuspenseData,
   type SkeletonAnimation,
-} from "autoskeleton";
+} from "@autoskeleton/react";
 import {
   ArticleView,
   CenteredHero,

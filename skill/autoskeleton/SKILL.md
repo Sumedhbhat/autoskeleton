@@ -20,7 +20,7 @@ While loading, the wrapped component must still be able to render. You get
 there by handing it placeholder data of the same shape.
 
 ```tsx
-import { Skeleton, SkeletonList, fake, usePlaceholder } from "autoskeleton";
+import { Skeleton, SkeletonList, fake, usePlaceholder } from "@autoskeleton/react";
 ```
 
 No CSS import or provider is needed; styles are injected automatically.
@@ -233,7 +233,7 @@ placeholder **to the hook**. Without a Suspense boundary (`useQuery(...).data`,
 a store, props), use `usePlaceholder` (Pattern A).
 
 ```tsx
-import { SkeletonSuspense, useSuspenseData } from "autoskeleton";
+import { SkeletonSuspense, useSuspenseData } from "@autoskeleton/react";
 
 <SkeletonSuspense>
   <Comments promise={commentsPromise} />
@@ -316,7 +316,7 @@ older 5.x without `queryClient.query`, use `queryClient.fetchQuery`.
 
 ```tsx
 import { hashKey, useQuery, useQueryClient, type QueryClient, type QueryKey, type UseSuspenseQueryOptions } from "@tanstack/react-query";
-import { useSkeleton, useSuspenseData } from "autoskeleton";
+import { useSkeleton, useSuspenseData } from "@autoskeleton/react";
 
 type Entry = { promise: Promise<unknown>; data?: unknown; failed?: boolean };
 const entries = new WeakMap<QueryClient, Map<string, Entry>>();
@@ -439,7 +439,7 @@ that reports usage) would fire with placeholder ids. Look for `useEffect` /
 and gate those effects:
 
 ```tsx
-import { useSkeleton } from "autoskeleton";
+import { useSkeleton } from "@autoskeleton/react";
 
 function Chart({ series }) {
   const isSkeleton = useSkeleton(); // true inside a loading <Skeleton>

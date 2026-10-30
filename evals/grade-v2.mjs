@@ -27,7 +27,7 @@ try {
 } catch (e) {
   check("typecheck", false, String(e.stdout).slice(0, 2000));
 }
-check("imports autoskeleton", /from ["']autoskeleton["']/.test(code));
+check("imports autoskeleton", /from ["'](@autoskeleton\/react|autoskeleton)["']/.test(code));
 check(
   "hand-written skeletons gone",
   !existsSync(join(runDir, "src/components/IssueRowSkeleton.tsx")) && !/IssueRowSkeleton|chart-skeleton|className=["']sk["']/.test(code),

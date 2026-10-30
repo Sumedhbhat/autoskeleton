@@ -4,9 +4,12 @@ name: Release
 # branches. package.json is the only place the version is written: CI adds
 # -nightly.<run> for main builds in its own checkout and never commits it.
 #
-# npm publishing is opt-in: set the repository variable NPM_PUBLISH=true and
-# either add an NPM_CI_TOKEN secret or configure npm trusted publishing for this
-# workflow. Until then the GitHub releases are still created.
+# npm publishing is opt-in: set the repository variable NPM_PUBLISH=true. Until
+# then the GitHub releases are still created. npm authenticates with trusted
+# publishing (OIDC) when a trusted publisher for this workflow is configured on
+# npmjs.com, and falls back to the NPM_CI_TOKEN secret otherwise. The token is
+# only needed for the first publish, before the package exists on npm; delete
+# it once the trusted publisher is set up.
 
 on:
   push:
@@ -15,6 +18,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  PACKAGE: "@autoskeleton/react"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -70,6 +76,7 @@ jobs:
     timeout-minutes: 10
     env:
       VERSION: ${{ needs.version.outputs.version }}
+      TARBALL: autoskeleton-react-${{ needs.version.outputs.version }}.tgz
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,8 +108,8 @@ jobs:
         run: |
           mkdir -p out
           npm pack --pack-destination out
-          tar -xOzf "out/autoskeleton-$VERSION.tgz" package/VERSION | grep -qx "$VERSION"
-          (cd out && sha256sum autoskeleton-*.tgz > SHA256SUMS && cat SHA256SUMS)
+          tar -xOzf "out/$TARBALL" package/VERSION | grep -qx "$VERSION"
+          (cd out && sha256sum autoskeleton-react-*.tgz > SHA256SUMS && cat SHA256SUMS)
 
       - name: Upload package
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -125,6 +132,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.version.outputs.version }}
+      TARBALL: autoskeleton-react-${{ needs.version.outputs.version }}.tgz
       CHANNEL: ${{ needs.version.outputs.channel }}
     steps:
       - name: Download package
@@ -148,7 +156,7 @@ jobs:
           fi
           prerelease=""
           [ "$CHANNEL" = nightly ] && prerelease="--prerelease"
-          notes="Install with: npm install autoskeleton@$VERSION"
+          notes="Install with: npm install $PACKAGE@$VERSION"
           gh release create "$tag" out/* --target "$GITHUB_SHA" --title "autoskeleton $VERSION" \
             --notes "$notes" --generate-notes $prerelease
 
@@ -157,13 +165,16 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_CI_TOKEN }}
         run: |
-          if npm view "autoskeleton@$VERSION" version >/dev/null 2>&1; then
-            echo "::notice::autoskeleton@$VERSION is already on npm."
+          # Trusted publishing needs npm 11.5.1 or newer.
+          node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm --version)" ||
+            { echo "::error::npm $(npm --version) is too old for trusted publishing (needs 11.5.1+)."; exit 1; }
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PACKAGE@$VERSION is already on npm."
             exit 0
           fi
           tag=latest
           [ "$CHANNEL" = nightly ] && tag=nightly
-          npm publish "./out/autoskeleton-$VERSION.tgz" --tag "$tag" --access public --provenance
+          npm publish "./out/$TARBALL" --tag "$tag" --access public --provenance
 
       - name: npm publishing disabled
         if: vars.NPM_PUBLISH != 'true'

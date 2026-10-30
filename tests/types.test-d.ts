@@ -1,5 +1,5 @@
 // Type-level tests, checked by `npm run typecheck` (never run or shipped).
-import { fake, useSuspenseData, type SkeletonListProps, type SkeletonSuspenseProps } from "autoskeleton";
+import { fake, useSuspenseData, type SkeletonListProps, type SkeletonSuspenseProps } from "@autoskeleton/react";
 
 interface Comment {
   id: string;
