@@ -9,7 +9,9 @@ name: Release
 # exists, CI stages each version with `npm stage publish` and a maintainer
 # approves it with 2FA on npmjs.com. That is how the package is first created.
 # Once the package exists, configure a trusted publisher for this workflow on
-# npmjs.com and delete NPM_CI_TOKEN: CI then publishes directly over OIDC.
+# npmjs.com with the "npm publish" allowed action enabled (new configurations
+# only allow `npm stage publish` by default), then delete NPM_CI_TOKEN: CI then
+# publishes directly over OIDC.
 
 on:
   push:
@@ -176,6 +178,12 @@ jobs:
           [ "$CHANNEL" = nightly ] && tag=nightly
           if [ -n "$NODE_AUTH_TOKEN" ]; then
             # Tokens can only stage a publish; a maintainer approves it with 2FA.
+            # A pending stage reserves the version, so a rerun must not stage it again.
+            if npm stage list "$PACKAGE" --json 2>/dev/null |
+              node -e 'const items = JSON.parse(require("fs").readFileSync(0, "utf8") || "[]"); process.exit(items.some((s) => s.version === process.argv[1] && s.status !== "rejected") ? 0 : 1)' "$VERSION"; then
+              echo "::notice::$PACKAGE@$VERSION is already staged and waiting for approval."
+              exit 0
+            fi
             npm stage publish "./out/$TARBALL" --tag "$tag" --access public --provenance
             echo "::notice::Staged $PACKAGE@$VERSION. Approve it on npmjs.com under Staged Packages, or run npm stage list $PACKAGE then npm stage approve <stage-id>."
           else
