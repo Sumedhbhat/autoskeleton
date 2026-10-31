@@ -5,11 +5,13 @@ name: Release
 # -nightly.<run> for main builds in its own checkout and never commits it.
 #
 # npm publishing is opt-in: set the repository variable NPM_PUBLISH=true. Until
-# then the GitHub releases are still created. npm authenticates with trusted
-# publishing (OIDC) when a trusted publisher for this workflow is configured on
-# npmjs.com, and falls back to the NPM_CI_TOKEN secret otherwise. The token is
-# only needed for the first publish, before the package exists on npm; delete
-# it once the trusted publisher is set up.
+# then the GitHub releases are still created. While the NPM_CI_TOKEN secret
+# exists, CI stages each version with `npm stage publish` and a maintainer
+# approves it with 2FA on npmjs.com. That is how the package is first created.
+# Once the package exists, configure a trusted publisher for this workflow on
+# npmjs.com with the "npm publish" allowed action enabled (new configurations
+# only allow `npm stage publish` by default), then delete NPM_CI_TOKEN: CI then
+# publishes directly over OIDC.
 
 on:
   push:
@@ -165,16 +167,28 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_CI_TOKEN }}
         run: |
-          # Trusted publishing needs npm 11.5.1 or newer.
-          node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm --version)" ||
-            { echo "::error::npm $(npm --version) is too old for trusted publishing (needs 11.5.1+)."; exit 1; }
+          # Staged publishing needs npm 11.15.0 or newer.
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && b >= 15) ? 0 : 1)' "$(npm --version)" ||
+            { echo "::error::npm $(npm --version) is too old for staged publishing (needs 11.15.0+)."; exit 1; }
           if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PACKAGE@$VERSION is already on npm."
             exit 0
           fi
           tag=latest
           [ "$CHANNEL" = nightly ] && tag=nightly
-          npm publish "./out/$TARBALL" --tag "$tag" --access public --provenance
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            # Tokens can only stage a publish; a maintainer approves it with 2FA.
+            # A pending stage reserves the version, so a rerun must not stage it again.
+            if npm stage list "$PACKAGE" --json 2>/dev/null |
+              node -e 'const items = JSON.parse(require("fs").readFileSync(0, "utf8") || "[]"); process.exit(items.some((s) => s.version === process.argv[1] && s.status !== "rejected") ? 0 : 1)' "$VERSION"; then
+              echo "::notice::$PACKAGE@$VERSION is already staged and waiting for approval."
+              exit 0
+            fi
+            npm stage publish "./out/$TARBALL" --tag "$tag" --access public --provenance
+            echo "::notice::Staged $PACKAGE@$VERSION. Approve it on npmjs.com under Staged Packages, or run npm stage list $PACKAGE then npm stage approve <stage-id>."
+          else
+            npm publish "./out/$TARBALL" --tag "$tag" --access public --provenance
+          fi
 
       - name: npm publishing disabled
         if: vars.NPM_PUBLISH != 'true'
