@@ -28,7 +28,7 @@ try {
 } catch (e) {
   check("typecheck", false, String(e.stdout).slice(0, 2000));
 }
-check("imports autoskeleton", /from ["']autoskeleton["']/.test(joined));
+check("imports autoskeleton", /from ["'](@autoskeleton\/react|autoskeleton)["']/.test(joined));
 const handSkeletonUsed = allTsx.some(
   ([f, c]) => !/Skeleton\.tsx$/.test(f) && /import[^;]*\b(ProfileHeaderSkeleton|ProductGridSkeleton|ProductCardSkeleton)\b/.test(c),
 );

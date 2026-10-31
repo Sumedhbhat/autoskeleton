@@ -1,6 +1,6 @@
 /**
  * All styling lives in one stylesheet, injected once on the client (or
- * shipped as `autoskeleton/styles.css` for SSR / strict CSP setups).
+ * shipped as `@autoskeleton/react/styles.css` for SSR / strict CSP setups).
  *
  * Theme with CSS variables on any ancestor:
  *   --autoskeleton-color       bone color

@@ -1,5 +1,5 @@
 {
-  "name": "autoskeleton",
+  "name": "@autoskeleton/react",
   "version": "0.1.0",
   "description": "Wrap any React component in <Skeleton loading> and get a pixel-accurate skeleton of it. No second skeleton component to maintain.",
   "license": "MIT",

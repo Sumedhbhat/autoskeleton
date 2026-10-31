@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "autoskeleton": "file:../autoskeleton-0.1.0.tgz",
+    "@autoskeleton/react": "file:../autoskeleton-react-0.1.0.tgz",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

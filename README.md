@@ -12,7 +12,7 @@ and pills, and the card backgrounds and borders they sit on. There's no second
 changes.
 
 ```tsx
-import { Skeleton, fake, usePlaceholder } from "autoskeleton";
+import { Skeleton, fake, usePlaceholder } from "@autoskeleton/react";
 
 const USER_PLACEHOLDER: User = {
   name: fake.name(),
@@ -38,12 +38,12 @@ until data arrives), so there's no `user?.name ?? ""` dance inside `UserCard`.
 ## Install
 
 ```sh
-npm install autoskeleton
+npm install @autoskeleton/react
 ```
 
 React 18 or 19. No CSS import or provider is required: the stylesheet is
 injected on first use (and hoisted into the SSR output on React 19). If you
-prefer a static file, import `autoskeleton/styles.css` and set
+prefer a static file, import `@autoskeleton/react/styles.css` and set
 `<SkeletonProvider injectStyles={false}>`.
 
 ## Usage
@@ -198,7 +198,7 @@ array built with `fake.list` and passed through `usePlaceholder`.
 ### Suspense: `SkeletonSuspense` and `useSuspenseData`
 
 ```tsx
-import { SkeletonSuspense, useSuspenseData } from "autoskeleton";
+import { SkeletonSuspense, useSuspenseData } from "@autoskeleton/react";
 
 <SkeletonSuspense>
   <Comments promise={commentsPromise} />
@@ -343,7 +343,7 @@ until the data changes (`use()` needs the same promise across renders;
 
 ```tsx
 import { hashKey, useQuery, useQueryClient, type QueryClient, type QueryKey, type UseSuspenseQueryOptions } from "@tanstack/react-query";
-import { useSkeleton, useSuspenseData } from "autoskeleton";
+import { useSkeleton, useSuspenseData } from "@autoskeleton/react";
 
 type Entry = { promise: Promise<unknown>; data?: unknown; failed?: boolean };
 const entries = new WeakMap<QueryClient, Map<string, Entry>>();
@@ -594,7 +594,7 @@ library is for.
 ## For AI coding agents
 
 The package ships a skill at `skill/autoskeleton/SKILL.md` (also in
-`node_modules/autoskeleton/skill/`). Point Claude Code, Cursor or similar at it
+`node_modules/@autoskeleton/react/skill/`). Point Claude Code, Cursor or similar at it
 when asking them to add loading states. It covers placeholders, refetching,
 pagination, Suspense, side effects and the hints above.
 
