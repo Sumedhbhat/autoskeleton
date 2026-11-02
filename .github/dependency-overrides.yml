@@ -1,4 +1,14 @@
 # Every dependency override (npm "overrides") needs an entry here, added in the
 # same commit. The dependency-overrides workflow removes entries once upstream
 # no longer needs them. See the dependency policy for the entry format.
-overrides: []
+overrides:
+  - package: minimatch
+    ecosystem: npm
+    manifest: package.json
+    override: "^11.0.1"
+    fixed_in: 11.0.1
+    advisory: GHSA-g3hv-75wg-m249
+    parents: [eslint, typescript-eslint]
+    reason: eslint@10.14.0 (via @eslint/config-array) and typescript-eslint@8.72.1 (via @typescript-eslint/typescript-estree) still require minimatch ^10, and the globparts DoS fix only shipped in 11.0.1 with no 10.x backport. Dev-only (lint tooling).
+    added: 2026-11-02
+    owner: "@Sumedhbhat"
