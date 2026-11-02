@@ -9,6 +9,6 @@ overrides:
     fixed_in: 11.0.1
     advisory: GHSA-g3hv-75wg-m249
     parents: [eslint, typescript-eslint]
-    reason: eslint@10.14.0 (via @eslint/config-array) and typescript-eslint@8.72.1 (via @typescript-eslint/typescript-estree) still require minimatch ^10, and the globparts DoS fix only shipped in 11.0.1 with no 10.x backport. Dev-only (lint tooling).
+    reason: The globparts DoS fix shipped only in minimatch 11.0.1 (no 10.x backport), but eslint (locked 10.12.0, directly and via @eslint/config-array) and typescript-eslint (locked 8.71.2, via @typescript-eslint/typescript-estree) require minimatch ^10. As of 2026-11-02 the latest releases (eslint 10.14.0, typescript-eslint 8.72.1) still do. Dev-only (lint tooling).
     added: 2026-11-02
     owner: "@Sumedhbhat"
