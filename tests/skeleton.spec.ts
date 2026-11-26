@@ -423,6 +423,35 @@ test("entrance animation without getAnimations(): animationend triggers a re-mea
   await expectAnimatedBones(page);
 });
 
+test("fake.list: gives each row its own id, of the template's id type", () => {
+  const stories = fake.list(3, { id: 0, title: "t" });
+  expect(stories.map((s) => s.id)).toEqual([-1, -2, -3]);
+  const comments = fake.list(2, (i) => ({ id: "", body: fake.sentence(4, i) }));
+  expect(comments.map((c) => c.id)).toEqual(["skeleton-0", "skeleton-1"]);
+  const papers = fake.list(2, { arxivId: "", title: "t" }, { key: "arxivId" });
+  expect(papers.map((p) => p.arxivId)).toEqual(["skeleton-0", "skeleton-1"]);
+  const invoices = fake.list(2, (i) => ({ id: `INV-00${i}` }), { key: false });
+  expect(invoices.map((r) => r.id)).toEqual(["INV-000", "INV-001"]);
+  const template = { title: "t" };
+  const rows = fake.list(2, template);
+  expect(rows[0]).not.toBe(template);
+  expect(rows[0]).not.toBe(rows[1]);
+  expect(fake.list(2, (i) => i)).toEqual([0, 1]);
+});
+
+test("fake text helpers: a [min, max] length picks a stable length in range", () => {
+  const words = (s: string) => s.split(" ").length;
+  const counts = Array.from({ length: 40 }, (_, i) => words(fake.sentence([8, 10], i)));
+  expect(counts.every((n) => n >= 8 && n <= 10)).toBe(true);
+  expect(new Set(counts)).toEqual(new Set([8, 9, 10]));
+  expect(fake.sentence([8, 10], 3)).toBe(fake.sentence([8, 10], 3));
+  expect(words(fake.sentence([10, 8], 1))).toBeGreaterThanOrEqual(8);
+  expect(fake.sentence([6, 6], 2)).toBe(fake.sentence(6, 2));
+  const lengths = Array.from({ length: 20 }, (_, i) => fake.text([20, 40], i).length);
+  expect(lengths.every((n) => n >= 18 && n <= 40)).toBe(true);
+  expect(fake.paragraph([2, 3], 1).length).toBeGreaterThan(0);
+});
+
 test("fake.id: string by default, negative number on request", () => {
   expect(fake.id(3)).toBe("skeleton-3");
   expect(fake.id()).toBe("skeleton-0");

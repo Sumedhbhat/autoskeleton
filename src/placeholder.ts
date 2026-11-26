@@ -25,30 +25,49 @@ function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * A length: an exact number, or a `[min, max]` range. A range picks a whole
+ * number in it from the seed, so rows seeded by their index vary in length
+ * but render the same on the server and the client.
+ */
+export type Length = number | readonly [min: number, max: number];
+
+function size(length: Length, seed: number): number {
+  if (typeof length === "number") return length;
+  const lo = Math.round(Math.min(length[0], length[1]));
+  const hi = Math.round(Math.max(length[0], length[1]));
+  return lo + Math.floor(rng(seed * 2246822519 + 29)() * (hi - lo + 1));
+}
+
+const first = (length: Length): number => (typeof length === "number" ? length : length[0]);
+
 /** Roughly `length` characters of word-like text. */
-function text(length = 24, seed = length): string {
+function text(length: Length = 24, seed = first(length)): string {
+  const chars = size(length, seed);
   const r = rng(seed * 7919 + 13);
   let out = "";
-  while (out.length < length) {
+  while (out.length < chars) {
     const w = WORDS[Math.floor(r() * WORDS.length)]!;
     out = out ? `${out} ${w}` : w;
   }
-  return cap(out.slice(0, Math.max(1, length)).trimEnd());
+  return cap(out.slice(0, Math.max(1, chars)).trimEnd());
 }
 
 /** A sentence of `words` words, ending in a period. */
-function sentence(words = 10, seed = words): string {
+function sentence(words: Length = 10, seed = first(words)): string {
+  const count = size(words, seed);
   const r = rng(seed * 104729 + 7);
   const out: string[] = [];
-  for (let i = 0; i < words; i++) out.push(WORDS[Math.floor(r() * WORDS.length)]!);
+  for (let i = 0; i < count; i++) out.push(WORDS[Math.floor(r() * WORDS.length)]!);
   return `${cap(out.join(" "))}.`;
 }
 
 /** A paragraph of `sentences` sentences with varied lengths. */
-function paragraph(sentences = 3, seed = sentences): string {
+function paragraph(sentences: Length = 3, seed = first(sentences)): string {
+  const count = size(sentences, seed);
   const r = rng(seed * 31337 + 3);
   const out: string[] = [];
-  for (let i = 0; i < sentences; i++) out.push(sentence(6 + Math.floor(r() * 10), seed * 100 + i));
+  for (let i = 0; i < count; i++) out.push(sentence(6 + Math.floor(r() * 10), seed * 100 + i));
   return out.join(" ");
 }
 
@@ -78,9 +97,38 @@ function image(width = 400, height = 300): string {
   )}`;
 }
 
-/** Build `count` items; `make` gets the index so items can vary. */
-function list<T>(count: number, make: (index: number) => T): T[] {
-  return Array.from({ length: count }, (_, i) => make(i));
+/** Options for `fake.list`. */
+export interface ListOptions<T> {
+  /**
+   * The field that keys each row. Default: `"id"`. `false` keeps every
+   * field as written, e.g. an id that is shown on screen (`"INV-001"`).
+   */
+  key?: keyof T | false;
+}
+
+const isRecord = (value: unknown): value is Record<PropertyKey, unknown> => {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * `count` placeholder rows, each with its own id. `item` is one row (copied
+ * per row) or `(index) => row`, so rows can vary, e.g. `fake.sentence([6, 12], i)`.
+ *
+ * When a row has the `key` field (`id` by default), the list overwrites it
+ * with a unique id of the same type: `fake.id(i, "number")` (`-1`, `-2`, …)
+ * for a number, `fake.id(i)` (`"skeleton-0"`, …) otherwise. So rows key
+ * cleanly and never match a real record.
+ */
+function list<T>(count: number, item: T | ((index: number) => T), options?: ListOptions<T>): T[] {
+  const key = options?.key ?? "id";
+  return Array.from({ length: count }, (_, i) => {
+    const row = typeof item === "function" ? (item as (index: number) => T)(i) : item;
+    if (!isRecord(row)) return row;
+    if (key === false || !(key in row)) return { ...row } as T;
+    return { ...row, [key]: typeof row[key] === "number" ? id(i, "number") : id(i) } as T;
+  });
 }
 
 /** A fixed ISO date string (stable across server and client). */

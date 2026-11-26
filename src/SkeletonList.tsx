@@ -54,11 +54,9 @@ const placeholderLists = new WeakSet<readonly unknown[]>();
  *   `label` adds one `role="status"` while loading. `id` is the cache key.
  * - For load more, render a second `<SkeletonList loading>` for the next
  *   page only, below the loaded rows.
- * - Not for Suspense. There, pass
- *   `fake.list(count, (i) => ({ ...item, id: fake.id(i) }))` to
- *   `useSuspenseData(promise, placeholder)` and map its result; each copy
- *   needs its own `id` because you key those rows (`fake.id(i, "number")`
- *   for numeric ids).
+ * - Not for Suspense. There, pass `fake.list(count, item)` to
+ *   `useSuspenseData(promise, placeholder)` and map its result. `fake.list`
+ *   gives each copy its own `id`, since you key those rows.
  *
  * @example
  * ```tsx

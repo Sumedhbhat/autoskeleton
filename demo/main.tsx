@@ -112,13 +112,17 @@ const realInvoices: Invoice[] = [
   { id: "INV-002", customer: "Globex Corporation", amount: "$80.50", status: "due", date: "Mar 9" },
   { id: "INV-003", customer: "Umbrella", amount: "$12,400.00", status: "overdue", date: "Feb 21" },
 ];
-const invoicesPlaceholder: Invoice[] = fake.list(3, (i) => ({
-  id: `INV-00${i}`,
-  customer: fake.text(12, i),
-  amount: "$1,000.00",
-  status: "paid",
-  date: "Mar 3",
-}));
+const invoicesPlaceholder: Invoice[] = fake.list(
+  3,
+  (i) => ({
+    id: `INV-00${i}`,
+    customer: fake.text(12, i),
+    amount: "$1,000.00",
+    status: "paid",
+    date: "Mar 3",
+  }),
+  { key: false },
+);
 
 const realStats: Stat[] = [
   { label: "Revenue", value: "$48.2k", delta: "+12%" },
@@ -142,7 +146,7 @@ const articlePlaceholder: Article = {
   paragraphs: [fake.paragraph(2, 1), fake.sentence(10, 2)],
 };
 
-const realProducts: Product[] = fake.list(6, (i) => ({
+const realProducts: Product[] = Array.from({ length: 6 }, (_, i) => ({
   id: String(i),
   title: ["Desk lamp", "Ceramic mug", "Notebook", "Wool throw", "Plant pot", "Clock"][i]!,
   price: `$${(i + 1) * 12}.00`,
@@ -164,7 +168,7 @@ const realProfile: Profile = { user: realUser, pinned: realPosts[0]! };
 const profilePlaceholder = (): Profile => ({ user: userPlaceholder, pinned: postsPlaceholder[0]! });
 
 const inboxPlaceholder = fake.list(12, (i) => ({ id: String(i), from: fake.name(i), subject: fake.sentence(6, i) }));
-const realInbox = fake.list(12, (i) => ({ id: String(i), from: `Sender ${i}`, subject: `Subject line number ${i} with some words` }));
+const realInbox = Array.from({ length: 12 }, (_, i) => ({ id: String(i), from: `Sender ${i}`, subject: `Subject line number ${i} with some words` }));
 
 // SkeletonList: one placeholder item, repeated `count` times while loading.
 // With ?same=1 the real items are copies of it, so geometry can be compared.
@@ -173,7 +177,7 @@ const productPlaceholder: Product = { id: fake.id(), title: fake.text(10), price
 const invoicePlaceholder: Invoice = { id: "INV-000", customer: fake.text(12), amount: "$1,000.00", status: "paid", date: "Mar 3" };
 const messagePlaceholder: Message = { id: fake.id(), from: fake.name(2), subject: fake.sentence(6) };
 const copies = <T extends { id: string }>(item: T, n: number, id: (i: number) => string = String): T[] =>
-  fake.list(n, (i) => ({ ...item, id: id(i) }));
+  Array.from({ length: n }, (_, i) => ({ ...item, id: id(i) }));
 const listPosts = SAME ? copies(postPlaceholder, 3) : realPosts;
 const listProducts = SAME ? copies(productPlaceholder, 4) : realProducts.slice(0, 4);
 const listInvoices = SAME ? copies(invoicePlaceholder, 3, (i) => `INV-00${i}`) : realInvoices;
@@ -702,11 +706,11 @@ function ManualSuspenseDemo() {
   );
 }
 
-// A list under Suspense: declare one item and repeat it with fake.list, each
-// copy with its own id so the rows' keys don't collide. The reader passes it to
+// A list under Suspense: declare one item and repeat it with fake.list, which
+// gives each copy its own id so the rows' keys don't collide. The reader passes it to
 // useSuspenseData (typed as Post[]) and maps the result: placeholder rows in the
 // skeleton, then the posts. The boundary needs no `fallback`.
-const listPostsPlaceholder = fake.list(3, (i) => ({ ...postPlaceholder, id: fake.id(i) }));
+const listPostsPlaceholder = fake.list(3, postPlaceholder);
 function SuspendingPostList({ promise }: { promise: Promise<Post[]> }) {
   const posts = useSuspenseData(promise, listPostsPlaceholder);
   return posts.map((p) => <PostItem key={p.id} post={p} />);
@@ -883,7 +887,7 @@ function SuspenseErrorDemo() {
 
 function PerfApp() {
   const loading = useLoading();
-  const posts = fake.list(PERF, (i) => ({ ...postsPlaceholder[i % 3]!, id: String(i) }));
+  const posts = Array.from({ length: PERF }, (_, i) => ({ ...postsPlaceholder[i % 3]!, id: String(i) }));
   return (
     <div className="app" style={{ padding: 20, maxWidth: 640 }}>
       <Skeleton loading={loading}>

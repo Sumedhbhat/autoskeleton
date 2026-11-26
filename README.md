@@ -92,12 +92,14 @@ For anything you can already render while loading:
 ```ts
 fake.text(24)            // ~24 characters of words
 fake.sentence(12, seed)  // 12 words, ends with "."
+fake.sentence([8, 12], i) // 8 to 12 words, picked from the seed
 fake.paragraph(3, seed)  // 3 sentences
 fake.name(seed)          // two words
 fake.email(seed)
 fake.number(4)           // 8888
 fake.image(400, 300)     // transparent image with real intrinsic size
-fake.list(5, (i) => ({ id: fake.id(i), title: fake.sentence(6, i) }))
+fake.list(5, (i) => ({ id: 0, title: fake.sentence([4, 8], i) })) // ids -1 … -5
+fake.list(5, STORY)      // five copies of one item, each with its own id
 fake.id(i)               // "skeleton-<i>"
 fake.id(i, "number")     // -1 - i: numeric ids, never collides with real ones
 fake.date()              // fixed ISO string
@@ -105,6 +107,18 @@ fake.date()              // fixed ISO string
 
 Placeholders only need the right shape and roughly the right text length. The
 closer the lengths are to real data, the less the page moves when data arrives.
+
+Every length (`text`, `sentence`, `paragraph`) can be a `[min, max]` range.
+The seed picks a whole number in it, so rows seeded by their index vary in
+length and still render the same on the server and the client.
+
+`fake.list(count, item)` takes one item, or `(index) => item` for rows that
+vary. It gives each row its own id, so you never write one: when a row has an
+`id` field, the list overwrites it with `fake.id(i, "number")` (`-1`, `-2`, …)
+if the field is a number, or `fake.id(i)` (`"skeleton-0"`, …) otherwise.
+Those ids never match a real record. For a key with another name, pass
+`{ key: "arxivId" }`. To keep every field as written, such as an id that is
+shown on screen (`"INV-001"`), pass `{ key: false }`.
 
 ### Tables, lists and grids
 
@@ -265,13 +279,13 @@ function useSuspenseData<T>(promise: PromiseLike<T>, placeholder?: NoInfer<T> | 
 
 #### Lists under Suspense
 
-Repeat one item with `fake.list`, giving each copy its own `id`, and pass the
-array to `useSuspenseData`. The child maps whatever it returns: placeholder
+Repeat one item with `fake.list`, which gives each copy its own `id`, and
+pass the array to `useSuspenseData`. The child maps whatever it returns: placeholder
 rows in the skeleton, then the real ones. No `fallback` needed.
 
 ```tsx
-// For numeric ids (`id: number`, e.g. Hacker News items) use fake.id(i, "number").
-const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+// Numeric ids (`id: number`, e.g. Hacker News items) become -1, -2, …
+const STORIES_PLACEHOLDER = fake.list(5, STORY_PLACEHOLDER);
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />
@@ -283,11 +297,9 @@ function Stories({ promise }: { promise: Promise<Story[]> }) {
 }
 ```
 
-- Each row needs its own `id` (or whatever the key is): the child keys rows
-  itself, so identical copies would collide on their keys. Match the id's
-  type: `fake.id(i)` is a string, `fake.id(i, "number")` a negative number
-  that never matches a real record. A string id where `Story.id` is a number
-  is a compile error.
+- Each row needs its own `id`, because the child keys rows itself.
+  `fake.list` handles that, matching the id's type. For a key with another
+  name, pass `{ key: "slug" }`.
 - `fake.list` returns a plain `Story[]`, so the item shape is checked: a
   missing or mistyped field is a compile error.
 - Skip `SkeletonList` here: inside the skeleton the data already is the
