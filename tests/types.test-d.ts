@@ -11,17 +11,22 @@ declare const status: Promise<{ state: "ok" | "failed" }>;
 const COMMENTS: Comment[] = [{ id: "1", body: "Text" }];
 const MAYBE: (Comment | null)[] = [null];
 const COMMENT: Comment = { id: fake.id(), body: fake.sentence(8) };
-// A list placeholder declared once: one item, repeated with its own id per row.
-const LIST = fake.list(3, (i) => ({ ...COMMENT, id: fake.id(i) }));
+// A list placeholder declared once: one item, repeated; fake.list gives each row its own id.
+const LIST = fake.list(3, COMMENT);
 const WRONG_LIST = fake.list(3, (i) => ({ id: fake.id(i) }));
-// Numeric ids (Hacker News-style items): fake.id(i, "number").
+// Numeric ids (Hacker News-style items): the rows get -1, -2, ….
 interface Story {
   id: number;
   title: string;
 }
 declare const stories: Promise<Story[]>;
 const STORY: Story = { id: fake.id(0, "number"), title: fake.sentence(8) };
-const STORIES = fake.list(3, (i) => ({ ...STORY, id: fake.id(i, "number") }));
+const STORIES = fake.list(3, (i) => ({ ...STORY, title: fake.sentence([6, 10], i) }));
+interface Paper {
+  arxivId: string;
+  title: string;
+}
+const PAPERS: Paper[] = fake.list(2, { arxivId: "", title: fake.text([20, 40]) }, { key: "arxivId" });
 
 type Equal<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
 const expect = <T extends true>(): T => true as T;
@@ -50,13 +55,15 @@ export function Typed() {
   expect<Equal<typeof h, Comment[]>>();
   const k = useSuspenseData(promise, () => fake.list(2, (i) => ({ ...COMMENT, id: fake.id(i) })));
   expect<Equal<typeof k, Comment[]>>();
-  // Numeric ids: fake.id(i, "number") keeps `id: number`.
+  // Numeric ids keep `id: number`.
   expect<Equal<typeof STORIES, { id: number; title: string }[]>>();
   const m = useSuspenseData(stories, STORIES);
   expect<Equal<typeof m, Story[]>>();
   const n = useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i, "number") })));
   expect<Equal<typeof n, Story[]>>();
-  return [a, b, c, d, e, f, g, h, k, m, n];
+  const p = fake.list(2, STORY, { key: false });
+  expect<Equal<typeof p, Story[]>>();
+  return [a, b, c, d, e, f, g, h, k, m, n, p, PAPERS];
 }
 
 export function Rejected() {
@@ -84,6 +91,10 @@ export function Rejected() {
   useSuspenseData(stories, fake.list(2, (i) => ({ ...STORY, id: fake.id(i) })));
   // @ts-expect-error one fake item where the promise gives a list
   useSuspenseData(promise, fake.list(1, () => COMMENT)[0]!);
+  // @ts-expect-error a key the item doesn't have
+  fake.list(2, STORY, { key: "arxivId" });
+  // @ts-expect-error a length range is two numbers
+  fake.sentence([6]);
   // @ts-expect-error not a promise
   useSuspenseData(COMMENTS, COMMENTS);
 }

@@ -77,8 +77,7 @@ placeholder item. Then pick by where the list comes from:
 
 - No Suspense (`useQuery(...).data`, a store, props): `SkeletonList`, below.
 - Suspense (a promise read in the child): `useSuspenseData(promise,
-  fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))`, or
-  `fake.id(i, "number")` when `id` is a number. See "Lists under Suspense".
+  fake.list(n, ITEM))`. See "Lists under Suspense".
 
 `SkeletonList` renders the item `count` times (default 3, identical rows),
 then the same function renders each real item. `loading` is `items == null`;
@@ -124,8 +123,8 @@ const USER_PLACEHOLDER: User = {
 };
 
 const POSTS_PLACEHOLDER: Post[] = fake.list(5, (i) => ({
-  id: fake.id(i),
-  title: fake.sentence(6, i),     // second arg = seed, so items differ
+  id: "",                         // fake.list sets each row's id
+  title: fake.sentence([4, 8], i), // 4 to 8 words, picked by the seed i
   body: fake.paragraph(2, i),
   cover: i % 2 ? fake.image(600, 300) : undefined,
 }));
@@ -133,18 +132,24 @@ const POSTS_PLACEHOLDER: Post[] = fake.list(5, (i) => ({
 
 Helpers: `fake.text(chars)`, `fake.sentence(words, seed?)`,
 `fake.paragraph(sentences, seed?)`, `fake.name(seed?)`, `fake.email(seed?)`,
-`fake.number(digits)`, `fake.image(w, h)`, `fake.list(n, i => item)`,
+`fake.number(digits)`, `fake.image(w, h)`, `fake.list(n, item | (i => item), { key? })`,
 `fake.date()`, `fake.id(seed)` (`"skeleton-<seed>"`), `fake.id(seed, "number")`
-(`-1 - seed`, for numeric ids). All are deterministic (SSR-safe).
+(`-1 - seed`, for numeric ids). Lengths (`chars`, `words`, `sentences`) can be
+a `[min, max]` range; the seed picks one in it. All are deterministic (SSR-safe).
+
+`fake.list` gives each row its own id. When a row has an `id` field, the list
+overwrites it with `-1`, `-2`, … for a number or `"skeleton-0"`, … otherwise,
+so you never write ids for placeholder rows. Pass `{ key: "slug" }` for a key
+with another name, or `{ key: false }` to keep ids that are shown on screen
+(`"INV-001"`).
 
 Guidelines:
 - **Lengths decide whether the page jumps when data arrives.** Before writing a
   placeholder, find real sample data (API mocks, fixtures, seed data, stories,
   tests) and copy its shape: the same number of items, and text of the same
   length per field. Mirror variation too: if real comments are one short, one
-  long and one medium, make the placeholders short, long and medium
-  (`fake.sentence(4, 0)`, `fake.sentence(22, 1)`, `fake.sentence(10, 2)`), not
-  three identical medium ones. With no samples, use typical lengths (a title
+  long and one medium, give the rows a range seeded by their index
+  (`fake.sentence([4, 22], i)`), not three identical medium ones. With no samples, use typical lengths (a title
   ~6 words, a name 2 words, a price "$00.00").
 - Images: use `fake.image(w, h)` with the real aspect ratio, or the `<img>` will be 0×0 if it has no CSS size.
 - Lists: 3–6 items is usually right; for tables use the page size. With
@@ -152,11 +157,10 @@ Guidelines:
   real items vary a lot and the jump matters, use `usePlaceholder` with a
   varied `fake.list(…)` instead.
 - Enums/booleans: pick the variant whose layout is most common (e.g. `verified: true` if it shows a badge).
-- Keep IDs unique (`fake.id(i)`, or `fake.id(i, "number")` when the type is a
-  number). Numeric ones are negative, so they never match a real record. In
-  `fake.list` arrays you key the rows yourself, so identical copies would
-  collide. `SkeletonList` keys its placeholder rows by index, so its one item
-  can keep a single id.
+- Keep IDs unique. `fake.list` does this for its rows, and numeric ones are
+  negative, so they never match a real record. For a single item, use
+  `fake.id()` or `fake.id(0, "number")`. `SkeletonList` keys its placeholder
+  rows by index, so its one item can keep a single id.
 
 ## Things to remove when converting
 
@@ -376,12 +380,12 @@ Limits:
 
 ### Lists under Suspense
 
-Repeat one item with `fake.list`, each copy with its own `id`, and pass it to
-the hook. The child maps the result. No `fallback`, no `SkeletonList`.
+Repeat one item with `fake.list`, which gives each copy its own `id`, and pass
+it to the hook. The child maps the result. No `fallback`, no `SkeletonList`.
 
 ```tsx
-// For numeric ids (`id: number`, e.g. Hacker News items) use fake.id(i, "number").
-const STORIES_PLACEHOLDER = fake.list(5, (i) => ({ ...STORY_PLACEHOLDER, id: fake.id(i) }));
+// Numeric ids (`id: number`, e.g. Hacker News items) become -1, -2, …
+const STORIES_PLACEHOLDER = fake.list(5, STORY_PLACEHOLDER);
 
 <SkeletonSuspense>
   <Stories promise={storiesPromise} />
@@ -394,9 +398,8 @@ function Stories({ promise }: { promise: Promise<Story[]> }) {
 
 - `fake.list` returns a plain `Story[]`, checked against the promise: a
   missing or mistyped item field is a type error.
-- Each copy needs its own `id`: the child keys the rows, so identical copies
-  collide on their keys. Match the id's type: `fake.id(i)` is a string,
-  `fake.id(i, "number")` a negative number; the wrong one is a type error.
+- Each copy needs its own `id`, because the child keys the rows. `fake.list`
+  sets it, matching the id's type; pass `{ key: "slug" }` for another key.
 - Keep the boundary's parent the flex/grid container (its wrapper is
   `display: contents`).
 
@@ -525,7 +528,7 @@ theme for this.
 - [ ] Placeholder images use `fake.image(w, h)` (or the img has CSS width/height).
 - [ ] Early `return <Spinner/>`/`return null` for loading removed.
 - [ ] Old `*Skeleton` components deleted if unused.
-- [ ] Lists of same-shaped items: `SkeletonList` (one placeholder item + `count`); under Suspense, `useSuspenseData(promise, fake.list(n, (i) => ({ ...ITEM, id: fake.id(i) })))` (`fake.id(i, "number")` for numeric ids).
+- [ ] Lists of same-shaped items: `SkeletonList` (one placeholder item + `count`); under Suspense, `useSuspenseData(promise, fake.list(n, ITEM))` (`fake.list` sets each row's id).
 - [ ] Tables use `as="tbody"`.
 - [ ] Every `useEffect` in wrapped components (and their children) checked: outside-world effects return early when `useSkeleton()` is true.
 - [ ] Placeholder covers nested objects, nullable fields and anything parsed/formatted (`new Date(...)`, `.toFixed()`, `.map()` on arrays).

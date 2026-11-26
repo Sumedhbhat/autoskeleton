@@ -4,6 +4,7 @@ export { useSuspenseData } from "./suspenseData";
 export { SkeletonList } from "./SkeletonList";
 export type { SkeletonListProps } from "./SkeletonList";
 export { fake } from "./placeholder";
+export type { Length, ListOptions } from "./placeholder";
 export { usePlaceholder } from "./usePlaceholder";
 export type { PlaceholderResult, UsePlaceholderOptions } from "./usePlaceholder";
 export { clearSkeletonCache } from "./cache";
